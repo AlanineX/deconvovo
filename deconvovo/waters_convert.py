@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Waters MassLynx .raw converter using UniDec's CDCReader.exe via Wine.
+Waters MassLynx .raw converter using UniDec's CDCReader.exe.
+
+On Windows: runs CDCReader.exe natively.
+On Linux/macOS: runs CDCReader.exe via Wine.
 
 Converts Waters .raw directories to analysis-ready text files:
   - MS spectrum: 2-column (m/z, intensity)
   - IM data: 3-column (m/z, drift_bin, intensity) for ion mobility
 
-Uses the vendor MassLynxRaw.dll + cdt.dll for correct calibration.
-
 Usage:
-    python -m deconvovo.waters_convert data_2_waters/20260216 -o output/22_waters_converted
-    python -m deconvovo.waters_convert mydata.raw -o out --ms-bin 0 --im-bin 0
+    python -m deconvovo.waters_convert data_2_waters/20260216 -o output/converted
 """
 from __future__ import annotations
 
@@ -25,9 +25,25 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+IS_WINDOWS = sys.platform == "win32"
+
+
+def _get_base_path() -> Path:
+    """Get base path — handles both normal Python and PyInstaller frozen exe."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent.parent
+
 
 def find_cdcreader() -> Path:
-    """Locate CDCReader.exe from UniDec installation."""
+    """Locate CDCReader.exe from UniDec installation or bundled location."""
+    # Check PyInstaller bundle first
+    if getattr(sys, 'frozen', False):
+        candidate = Path(sys._MEIPASS) / "unidec" / "bin" / "CDCReader.exe"
+        if candidate.exists():
+            return candidate
+
+    # Check UniDec package
     try:
         import unidec
         pkg_dir = Path(unidec.__file__).parent
@@ -36,6 +52,7 @@ def find_cdcreader() -> Path:
             return candidate
     except ImportError:
         pass
+
     raise FileNotFoundError(
         "CDCReader.exe not found. Install UniDec: pip install unidec"
     )
@@ -45,7 +62,6 @@ def find_support_dlls(cdcreader_dir: Path) -> list[Path]:
     """Find MassLynxRaw.dll and cdt.dll needed by CDCReader."""
     dlls = []
     for name in ["MassLynxRaw.dll", "cdt.dll"]:
-        # Check CDCReader directory first, then UniDec Waters importer
         for search_dir in [cdcreader_dir, cdcreader_dir.parent / "UniDecImporter" / "Waters"]:
             p = search_dir / name
             if p.exists():
@@ -54,14 +70,11 @@ def find_support_dlls(cdcreader_dir: Path) -> list[Path]:
     return dlls
 
 
-def check_wine() -> str:
-    """Check that Wine is available. Returns wine binary path."""
-    wine = shutil.which("wine")
-    if not wine:
-        raise FileNotFoundError(
-            "Wine not found. Install wine to run CDCReader.exe on Linux."
-        )
-    return wine
+def _to_native_path(p: Path) -> str:
+    """Convert path for CDCReader: native on Windows, Z: prefix on Linux/Wine."""
+    if IS_WINDOWS:
+        return str(p)
+    return f"Z:{p}"
 
 
 def convert_one_raw(
@@ -74,7 +87,7 @@ def convert_one_raw(
     skip_ms: bool = False,
     skip_im: bool = False,
 ) -> dict:
-    """Convert one .raw directory using CDCReader.exe via Wine.
+    """Convert one .raw directory using CDCReader.exe.
 
     Returns dict with paths to output files and metadata.
     """
@@ -82,37 +95,44 @@ def convert_one_raw(
     ms_out = out_dir / f"{run_name}_ms.txt"
     im_out = out_dir / f"{run_name}_im.txt"
 
-    # Build Wine path for the raw directory
-    raw_wine_path = f"Z:{raw_dir}"
-
-    # Build CDCReader command
     cdcreader = work_dir / "CDCReader.exe"
-    cmd = [
-        "wine", str(cdcreader),
-        "-r", raw_wine_path,
-        "--fn", str(func),
-    ]
+
+    # Build command: native on Windows, via Wine on Linux
+    if IS_WINDOWS:
+        cmd = [str(cdcreader)]
+    else:
+        wine = shutil.which("wine")
+        if not wine:
+            raise FileNotFoundError(
+                "Wine not found. Install wine to run CDCReader.exe on Linux.")
+        cmd = ["wine", str(cdcreader)]
+
+    cmd += ["-r", _to_native_path(raw_dir.resolve()), "--fn", str(func)]
 
     if not skip_ms:
-        cmd += ["-m", f"Z:{ms_out}"]
+        cmd += ["-m", _to_native_path(ms_out.resolve())]
     else:
         cmd += ["--skip_ms", "1"]
 
     if not skip_im:
-        cmd += ["-i", f"Z:{im_out}"]
+        cmd += ["-i", _to_native_path(im_out.resolve())]
     else:
         cmd += ["--skip_im", "1"]
 
     cmd += ["--ms_bin", str(ms_bin)]
     cmd += ["--im_bin", str(im_bin)]
 
-    # Run CDCReader
+    # Environment: suppress Wine debug noise on Linux
+    env = dict(os.environ)
+    if not IS_WINDOWS:
+        env["WINEDEBUG"] = "-all"
+
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         timeout=120,
-        env={**os.environ, "WINEDEBUG": "-all"},
+        env=env,
     )
 
     info: dict = {
@@ -126,7 +146,6 @@ def convert_one_raw(
         info["stderr"] = result.stderr[:500]
         return info
 
-    # Parse output files
     if not skip_ms and ms_out.exists() and ms_out.stat().st_size > 0:
         info["ms_file"] = str(ms_out)
         info["ms_size"] = ms_out.stat().st_size
@@ -152,6 +171,20 @@ def collect_raw_dirs(inputs: list[str]) -> list[Path]:
     return [r for r in results if not (r in seen or seen.add(r))]
 
 
+def setup_work_dir(out_dir: Path) -> Path:
+    """Set up work directory with CDCReader + DLLs. Returns work_dir path."""
+    cdcreader_path = find_cdcreader()
+    dlls = find_support_dlls(cdcreader_path.parent)
+
+    work_dir = out_dir / ".cdcreader"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(cdcreader_path, work_dir / "CDCReader.exe")
+    for dll in dlls:
+        shutil.copy2(dll, work_dir / dll.name)
+
+    return work_dir
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert Waters MassLynx .raw to text (MS + IM) via CDCReader.",
@@ -172,26 +205,17 @@ def main() -> None:
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Setup
-    wine = check_wine()
+    work_dir = setup_work_dir(out_dir)
     cdcreader_path = find_cdcreader()
-    dlls = find_support_dlls(cdcreader_path.parent)
-
-    # Create work directory with CDCReader + DLLs
-    work_dir = out_dir / ".cdcreader"
-    work_dir.mkdir(exist_ok=True)
-    shutil.copy2(cdcreader_path, work_dir / "CDCReader.exe")
-    for dll in dlls:
-        shutil.copy2(dll, work_dir / dll.name)
 
     raw_dirs = collect_raw_dirs(args.inputs)
     if not raw_dirs:
         print("No .raw directories found.")
         sys.exit(1)
 
+    platform = "native" if IS_WINDOWS else "Wine"
     print(f"Waters Convert: {len(raw_dirs)} .raw dirs -> {out_dir}")
-    print(f"CDCReader: {cdcreader_path}")
-    print(f"Wine: {wine}")
+    print(f"CDCReader: {cdcreader_path} ({platform})")
     print()
 
     results = []
@@ -224,7 +248,6 @@ def main() -> None:
             print(f" — ERROR: {e}")
             results.append({"run_name": run_name, "status": f"error: {e}"})
 
-    # Summary
     pd.DataFrame(results).to_csv(out_dir / "convert_summary.csv", index=False)
     n_ok = sum(1 for r in results if r.get("status") == "complete")
     print(f"\nDone: {n_ok}/{len(results)} converted")

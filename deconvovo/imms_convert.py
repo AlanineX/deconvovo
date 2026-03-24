@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
-import sys
 from pathlib import Path
 
 from deconvovo import waters_convert as wc
@@ -17,15 +15,7 @@ def run(input_dir: Path, output_dir: Path) -> Path:
         print("  No .raw directories found")
         return output_dir
 
-    wine = wc.check_wine()
-    cdcreader = wc.find_cdcreader()
-    dlls = wc.find_support_dlls(cdcreader.parent)
-
-    work_dir = output_dir / ".cdcreader"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(cdcreader, work_dir / "CDCReader.exe")
-    for dll in dlls:
-        shutil.copy2(dll, work_dir / dll.name)
+    work_dir = wc.setup_work_dir(output_dir)
 
     print(f"  {len(raw_dirs)} .raw dirs → {output_dir}")
     for raw_dir in raw_dirs:

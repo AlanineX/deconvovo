@@ -22,7 +22,12 @@ from scipy.ndimage import gaussian_filter
 
 def _load_plot_config() -> dict:
     """Load imms_plot_config.json from config/ dir. Returns defaults if missing."""
-    cfg_path = Path(__file__).parent.parent / "config" / "imms_plot_config.json"
+    import sys
+    if getattr(sys, 'frozen', False):
+        base = Path(sys._MEIPASS)
+    else:
+        base = Path(__file__).parent.parent
+    cfg_path = base / "config" / "imms_plot_config.json"
     default = {
         "defaults": {
             "smooth_2d": {"method": "raw"}, "scale": "1",

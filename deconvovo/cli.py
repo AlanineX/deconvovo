@@ -131,17 +131,8 @@ def main() -> None:
         data_dir = converted_dir
 
         # Setup CDCReader work dir (shared, read-only after setup)
-        from deconvovo import imms_convert
         wc = _get_wc()
-        wine = wc.check_wine()
-        cdcreader = wc.find_cdcreader()
-        dlls = wc.find_support_dlls(cdcreader.parent)
-        import shutil
-        work_dir = converted_dir / ".cdcreader"
-        work_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(cdcreader, work_dir / "CDCReader.exe")
-        for dll in dlls:
-            shutil.copy2(dll, work_dir / dll.name)
+        work_dir = wc.setup_work_dir(converted_dir)
 
         raw_dirs = sorted(
             d for d in input_dir.iterdir()

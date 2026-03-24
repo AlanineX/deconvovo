@@ -41,6 +41,11 @@ except ImportError:
 if CONFIG.exists():
     datas.append((str(CONFIG), "config"))
 
+# Bundle demo_data/ (sample .raw files + customized CSVs)
+DEMO = ROOT / "demo_data"
+if DEMO.exists():
+    datas.append((str(DEMO), "demo_data"))
+
 a = Analysis(
     [str(ROOT / "gui" / "app.py")],
     pathex=[str(ROOT)],

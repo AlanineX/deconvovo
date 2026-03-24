@@ -27,34 +27,27 @@ class FullPipelinePanel(QWidget):
         title = QLabel("Full Pipeline")
         title.setProperty("title", True)
         layout.addWidget(title)
-        sub = QLabel("Run the complete workflow: Convert → HTML Viewer → CCS Calibration → Analyte CCS. "
-                     "Select which steps to include.")
+        sub = QLabel("Run the complete workflow: Convert .raw → HTML Viewer → CCS Calibration → Analyte CCS.")
         sub.setProperty("subtitle", True)
         sub.setWordWrap(True)
         layout.addWidget(sub)
 
         # Paths
-        grp = QGroupBox("Data Paths")
+        grp = QGroupBox("Input")
         gl = QVBoxLayout(grp)
-        self.pick_raw = DirPicker("Raw .raw dir:", dialog_title="Select directory with .raw folders")
-        self.pick_data = DirPicker("Text data:", dialog_title="Select directory with converted text files (or leave empty to convert)")
+        self.pick_raw = DirPicker("Raw .raw dir:", dialog_title="Select directory containing .raw folders")
         self.pick_out = DirPicker("Output:", dialog_title="Select output directory")
         gl.addWidget(self.pick_raw)
-        gl.addWidget(self.pick_data)
         gl.addWidget(self.pick_out)
         layout.addWidget(grp)
 
         # CCS config
         grp2 = QGroupBox("CCS Configuration")
         gl2 = QVBoxLayout(grp2)
-        row_cal = QHBoxLayout()
         self.pick_cal_csv = FilePicker("Calibrant CSV:")
-        row_cal.addWidget(self.pick_cal_csv)
-        gl2.addLayout(row_cal)
-        row_ana = QHBoxLayout()
+        gl2.addWidget(self.pick_cal_csv)
         self.pick_ana_csv = FilePicker("Analyte CSV:")
-        row_ana.addWidget(self.pick_ana_csv)
-        gl2.addLayout(row_ana)
+        gl2.addWidget(self.pick_ana_csv)
         row_opts = QHBoxLayout()
         row_opts.addWidget(QLabel("Method:"))
         self.combo_method = QComboBox()
@@ -66,7 +59,7 @@ class FullPipelinePanel(QWidget):
         layout.addWidget(grp2)
 
         # Steps
-        grp3 = QGroupBox("Steps to Run")
+        grp3 = QGroupBox("Steps")
         sl = QHBoxLayout(grp3)
         self.chk_convert = QCheckBox("Convert .raw")
         self.chk_convert.setChecked(True)
@@ -108,16 +101,16 @@ class FullPipelinePanel(QWidget):
         layout.addStretch()
 
     def _run(self):
+        raw_dir = self.pick_raw.path()
         out = self.pick_out.path()
-        if not out:
-            self._log.log("Set output directory.", "warning")
+        if not raw_dir or not out:
+            self._log.log("Set raw directory and output directory.", "warning")
             return
 
-        raw_dir = self.pick_raw.path() or None
-        data_dir = self.pick_data.path() or None
         cal_csv = self.pick_cal_csv.path() or None
         ana_csv = self.pick_ana_csv.path() or None
         method = self.combo_method.currentText()
+        workers = self.spin_workers.value()
 
         steps = {
             "convert": self.chk_convert.isChecked(),
@@ -125,7 +118,13 @@ class FullPipelinePanel(QWidget):
             "ccs": self.chk_ccs.isChecked(),
             "analyte": self.chk_analyte.isChecked(),
         }
-        workers = self.spin_workers.value()
+
+        if steps["ccs"] and not cal_csv:
+            self._log.log("CCS calibration requires a calibrant CSV.", "warning")
+            return
+        if steps["analyte"] and not ana_csv:
+            self._log.log("Analyte CCS requires an analyte CSV.", "warning")
+            return
 
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
@@ -134,13 +133,13 @@ class FullPipelinePanel(QWidget):
         self._log.log("Starting full pipeline...", "accent")
 
         self._worker = Worker(
-            self._do_run, out, raw_dir, data_dir, cal_csv, ana_csv,
+            self._do_run, raw_dir, out, cal_csv, ana_csv,
             method, steps, workers)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _do_run(self, out, raw_dir, data_dir, cal_csv, ana_csv,
+    def _do_run(self, raw_dir, out, cal_csv, ana_csv,
                 method, steps, workers):
         import logging
         logger = logging.getLogger("ccs_calibrate")
@@ -152,30 +151,28 @@ class FullPipelinePanel(QWidget):
         converted_dir = out / "_converted"
 
         try:
-            # Step 1: Convert
-            if steps["convert"] and raw_dir:
-                self._log._sig.message.emit("Step 1/4: Converting .raw files...", "accent")
+            # Step 1: Convert .raw → text
+            if steps["convert"]:
+                self._log._sig.message.emit("Step 1: Converting .raw files...", "accent")
                 from deconvovo.imms_convert import run as convert_run
                 convert_run(Path(raw_dir), converted_dir)
-                data_dir = str(converted_dir)
 
-            if not data_dir:
-                data_dir = str(converted_dir) if converted_dir.exists() else None
+            data_dir = converted_dir if converted_dir.exists() else Path(raw_dir)
 
-            # Step 2: HTML
-            if steps["html"] and data_dir:
-                self._log._sig.message.emit("Step 2/4: Generating HTML viewers...", "accent")
+            # Step 2: HTML viewers
+            if steps["html"]:
+                self._log._sig.message.emit("Step 2: Generating HTML viewers...", "accent")
                 from deconvovo.imms_plot import run as plot_run
                 plot_run(
-                    Path(data_dir), out,
+                    data_dir, out,
                     skip_existing=True,
-                    raw_dir=Path(raw_dir) if raw_dir else None,
+                    raw_dir=Path(raw_dir),
                     n_workers=workers,
                 )
 
-            # Step 3+4: CCS
+            # Step 3: CCS calibration (+ analytes)
             if steps["ccs"] and cal_csv:
-                self._log._sig.message.emit("Step 3-4/4: CCS calibration + analytes...", "accent")
+                self._log._sig.message.emit("Step 3: CCS calibration...", "accent")
                 from deconvovo.imms_ccs_calibrate import run as ccs_run
                 ccs_out = out / f"ccs_{method}"
                 ccs_run(

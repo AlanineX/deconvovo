@@ -1,0 +1,4 @@
+species,mw,z,mz,data_dir,raw_path,mz_window,min_ms_intensity
+Betaine,117.079,1,118.087,/home/alan/working/deconvovo/demo_data/test_raw,/home/alan/working/deconvovo/demo_data/20260320_BETAINE_V2.raw,3,50
+
+

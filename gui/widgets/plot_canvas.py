@@ -10,7 +10,7 @@ from matplotlib.figure import Figure
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from gui.theme import MPL_RC
+from gui.theme import mpl_rc
 
 
 class PlotCanvas(QWidget):
@@ -18,7 +18,7 @@ class PlotCanvas(QWidget):
 
     def __init__(self, parent=None, figsize=(6, 3.5), nrows=1, ncols=1):
         super().__init__(parent)
-        plt.rcParams.update(MPL_RC)
+        plt.rcParams.update(mpl_rc(dark=True))
 
         self.fig = Figure(figsize=figsize, constrained_layout=True)
         self.axes = self.fig.subplots(nrows, ncols, squeeze=False)

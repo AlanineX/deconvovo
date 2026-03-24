@@ -5,12 +5,12 @@ import sys
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QListWidget, QStackedWidget, QSplitter, QLabel,
+    QListWidget, QStackedWidget, QSplitter, QLabel, QPushButton,
 )
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 
-from gui.theme import stylesheet, BG_MID, TEXT_BRIGHT, TEXT_DIM, ACCENT, FONT_FAMILY
+from gui.theme import stylesheet, ACCENT, FONT_FAMILY
 from gui.widgets.log_panel import LogPanel
 from gui.panels.convert import ConvertPanel
 from gui.panels.html_viewer import HtmlViewerPanel
@@ -31,9 +31,9 @@ PANELS = [
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DeconVoVo — IM-MS Analysis Suite")
+        self._dark = True
+        self.setWindowTitle("DeconVoVo")
         self.setMinimumSize(900, 600)
-        # Adaptive size: 85% of screen, capped at 1400x860
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen().availableGeometry()
         w = min(int(screen.width() * 0.85), 1400)
@@ -52,14 +52,12 @@ class MainWindow(QMainWindow):
         sidebar_l.setContentsMargins(0, 0, 0, 0)
         sidebar_l.setSpacing(0)
 
-        # Logo / title
+        # Title
         title_w = QWidget()
-        title_w.setStyleSheet(f"background-color: {BG_MID};")
         title_l = QVBoxLayout(title_w)
         title_l.setContentsMargins(16, 16, 16, 12)
         lbl_title = QLabel("DeconVoVo")
-        lbl_title.setProperty("title", True)
-        lbl_title.setStyleSheet(f"color: {ACCENT}; font-size: 16pt; font-weight: bold;")
+        lbl_title.setStyleSheet(f"color: {ACCENT}; font-size: 16pt; font-weight: bold; background: transparent;")
         lbl_sub = QLabel("IM-MS Analysis Suite")
         lbl_sub.setProperty("subtitle", True)
         title_l.addWidget(lbl_title)
@@ -74,19 +72,28 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._switch_panel)
         sidebar_l.addWidget(self.nav, stretch=1)
 
-        # Version label
+        # Bottom: theme toggle + version
+        bot_w = QWidget()
+        bot_l = QHBoxLayout(bot_w)
+        bot_l.setContentsMargins(8, 4, 8, 8)
+        self.btn_theme = QPushButton("Light")
+        self.btn_theme.setProperty("secondary", True)
+        self.btn_theme.setFixedHeight(24)
+        self.btn_theme.setFixedWidth(50)
+        self.btn_theme.clicked.connect(self._toggle_theme)
+        bot_l.addWidget(self.btn_theme)
         from gui import __version__
-        ver = QLabel(f"  v{__version__}")
+        ver = QLabel(f"v{__version__}")
         ver.setProperty("subtitle", True)
-        ver.setStyleSheet(f"background-color: {BG_MID}; padding: 8px;")
-        sidebar_l.addWidget(ver)
+        bot_l.addWidget(ver)
+        bot_l.addStretch()
+        sidebar_l.addWidget(bot_w)
 
         root.addWidget(sidebar_w)
 
         # ---- Right side: panels + log ----
         right = QSplitter(Qt.Vertical)
 
-        # Panel stack
         self.stack = QStackedWidget()
         self.log_panel = LogPanel()
 
@@ -109,6 +116,11 @@ class MainWindow(QMainWindow):
             name, desc, _ = PANELS[idx]
             self.log_panel.log(f"--- {name}: {desc} ---")
 
+    def _toggle_theme(self):
+        self._dark = not self._dark
+        QApplication.instance().setStyleSheet(stylesheet(dark=self._dark))
+        self.btn_theme.setText("Dark" if not self._dark else "Light")
+
     def get_panel(self, idx: int):
         return self._panels[idx]
 
@@ -116,7 +128,7 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    app.setStyleSheet(stylesheet())
+    app.setStyleSheet(stylesheet(dark=True))
     app.setFont(QFont(FONT_FAMILY, 10))
 
     win = MainWindow()

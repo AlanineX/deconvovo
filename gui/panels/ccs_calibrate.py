@@ -57,6 +57,11 @@ class CcsCalibrationPanel(QWidget):
 
         layout.addLayout(ctrl)
 
+        row2 = QHBoxLayout()
+        self.pick_data = DirPicker("Data dir:", dialog_title="Select directory with converted _ms.txt/_im.txt files")
+        row2.addWidget(self.pick_data, stretch=1)
+        layout.addLayout(row2)
+
         out_row = QHBoxLayout()
         self.pick_out = DirPicker("Output:", dialog_title="Select output directory")
         out_row.addWidget(self.pick_out, stretch=1)
@@ -117,9 +122,10 @@ class CcsCalibrationPanel(QWidget):
                 self._log.log(f"Failed to load CSV: {e}", "error")
 
     def _run(self):
+        data = self.pick_data.path()
         out = self.pick_out.path()
-        if not out:
-            self._log.log("Set output directory first.", "warning")
+        if not data or not out:
+            self._log.log("Set data directory and output directory.", "warning")
             return
 
         # Get current table as DataFrame
@@ -148,19 +154,20 @@ class CcsCalibrationPanel(QWidget):
         tmp = Path(tempfile.mktemp(suffix=".csv"))
         df.to_csv(tmp, index=False)
 
-        self._worker = Worker(self._do_calibrate, str(tmp), out, method)
+        self._worker = Worker(self._do_calibrate, str(tmp), data, out, method)
         self._worker.finished.connect(lambda r: self._on_done(r, tmp))
         self._worker.error.connect(lambda e: self._on_error(e, tmp))
         self._worker.start()
 
-    def _do_calibrate(self, csv_path: str, out_dir: str, method: str):
+    def _do_calibrate(self, csv_path: str, data_dir: str, out_dir: str, method: str):
         import logging
         logger = logging.getLogger("ccs_calibrate")
         handler = self._log.get_handler()
         logger.addHandler(handler)
         try:
             from deconvovo.imms_ccs_calibrate import run as ccs_run
-            return ccs_run(Path(out_dir), Path(csv_path), conversion_method=method)
+            return ccs_run(Path(out_dir), Path(data_dir), Path(csv_path),
+                           conversion_method=method)
         finally:
             logger.removeHandler(handler)
 

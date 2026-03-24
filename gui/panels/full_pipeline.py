@@ -176,7 +176,7 @@ class FullPipelinePanel(QWidget):
                 from deconvovo.imms_ccs_calibrate import run as ccs_run
                 ccs_out = out / f"ccs_{method}"
                 ccs_run(
-                    ccs_out, Path(cal_csv),
+                    ccs_out, data_dir, Path(cal_csv),
                     analyte_csv=Path(ana_csv) if ana_csv and steps["analyte"] else None,
                     conversion_method=method,
                 )

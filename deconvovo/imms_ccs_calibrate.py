@@ -1,10 +1,12 @@
-"""CCS calibration orchestrator for Waters SYNAPT G2 TW-IMS data.
+"""CCS calibration orchestrator for TW-IMS data.
 
-CSV-driven: calibrant and analyte configs are self-contained CSVs.
+CSV-driven: calibrant and analyte configs specify species parameters.
+Data directory (where converted _ms.txt/_im.txt live) is a single argument.
 
 Usage:
     python -m deconvovo.imms_ccs_calibrate \
         -o output/ccs \
+        --data-dir output/converted \
         --calibrant-csv config/calibrants_tunemix.csv \
         --analyte-csv config/analytes_adp.csv
 """
@@ -63,14 +65,42 @@ def _resolve_mz_window(row, mw, z):
 # Orchestrator
 # =============================================================================
 
-def run(out_dir: Path, calibrant_csv: Path, analyte_csv: Path | None = None,
+def _find_text_file(data_dirs: list[Path], filename: str) -> Path | None:
+    """Search multiple data directories for a text file."""
+    for d in data_dirs:
+        p = d / filename
+        if p.exists():
+            return p
+    return None
+
+
+def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
+        analyte_csv: Path | None = None,
         conversion_method: str = "direct") -> dict:
+    """Run CCS calibration.
+
+    Args:
+        out_dir: Output directory for results.
+        data_dirs: One or more directories containing converted _ms.txt/_im.txt files.
+        calibrant_csv: CSV with calibrant species (name, mw, z, mz, ccs, raw_path, ...).
+        analyte_csv: Optional CSV with analyte species.
+        conversion_method: "direct" (power-law) or "twostep" (linear).
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     _setup_logging(out_dir)
+
+    # Normalize to list
+    if isinstance(data_dirs, Path):
+        data_dirs = [data_dirs]
+    data_dirs = [d for d in data_dirs if d.is_dir()]
+    if not data_dirs:
+        raise FileNotFoundError("No valid data directories found.\n"
+                                "Convert .raw files first, then point --data-dir at the output.")
 
     cal_df = pd.read_csv(calibrant_csv)
     _log.info("=== CCS Calibration ===")
     _log.info("  Calibrant CSV: %s (%d rows)", calibrant_csv, len(cal_df))
+    _log.info("  Data dirs: %s", [str(d) for d in data_dirs])
     _log.info("  Conversion: %s", conversion_method)
 
     # Defaults for optional columns
@@ -113,7 +143,7 @@ def run(out_dir: Path, calibrant_csv: Path, analyte_csv: Path | None = None,
         name = row["name"]
         mw = float(row["mw"]); z = int(row["z"]); mz = float(row["mz"])
         ccs = float(row["ccs"])
-        data_dir = Path(row["data_dir"]); raw_path = row["raw_path"]
+        raw_path = row["raw_path"]
         run = Path(raw_path).stem
         mz_window = _resolve_mz_window(row, mw, z)
         peak_sel = str(row["peak_select"])
@@ -125,11 +155,17 @@ def run(out_dir: Path, calibrant_csv: Path, analyte_csv: Path | None = None,
         if pp is None:
             _log.warning("No pusher for %s, skipping", name); continue
 
-        ms_int = measure_ms_intensity(data_dir / f"{run}_ms.txt", mz, mz_window)
+        ms_file = _find_text_file(data_dirs, f"{run}_ms.txt")
+        im_file = _find_text_file(data_dirs, f"{run}_im.txt")
+
+        if ms_file is None:
+            _log.warning("  %s: %s_ms.txt not found in any data dir, skipping", name, run); continue
+
+        ms_int = measure_ms_intensity(ms_file, mz, mz_window)
         if ms_int < min_ms:
             _log.info("  %s: MS int %.0f < %.0f, skip", name, ms_int, min_ms); continue
 
-        im_data = read_im_txt(data_dir / f"{run}_im.txt")
+        im_data = read_im_txt(im_file) if im_file else pd.DataFrame()
         if im_data.empty:
             _log.warning("  %s: no IM data", name); continue
 
@@ -199,9 +235,8 @@ def run(out_dir: Path, calibrant_csv: Path, analyte_csv: Path | None = None,
 
         ana_summary = []
 
-        # Group by (data_dir, raw_path) to read each IM file only once
-        for (data_dir_str, raw_path_str), group in ana_df.groupby(["data_dir", "raw_path"]):
-            data_dir = Path(data_dir_str)
+        # Group by raw_path to read each IM file only once
+        for raw_path_str, group in ana_df.groupby("raw_path"):
             run = Path(raw_path_str).stem
 
             pp = pusher_cache.get(raw_path_str)
@@ -211,9 +246,9 @@ def run(out_dir: Path, calibrant_csv: Path, analyte_csv: Path | None = None,
                 _log.warning("No pusher for run %s, skipping", run)
                 continue
 
-            im_file = data_dir / f"{run}_im.txt"
-            ms_file = data_dir / f"{run}_ms.txt"
-            im_data = read_im_txt(im_file) if im_file.exists() else pd.DataFrame()
+            im_file = _find_text_file(data_dirs, f"{run}_im.txt")
+            ms_file = _find_text_file(data_dirs, f"{run}_ms.txt")
+            im_data = read_im_txt(im_file) if im_file else pd.DataFrame()
             _log.info("  %s: %d species", run, len(group))
 
             for _, row in group.iterrows():
@@ -222,6 +257,8 @@ def run(out_dir: Path, calibrant_csv: Path, analyte_csv: Path | None = None,
                 mz_w = _resolve_mz_window(row, mw, z)
                 min_ms = float(row["min_ms_intensity"])
 
+                if ms_file is None:
+                    continue
                 ms_int = measure_ms_intensity(ms_file, mz, mz_w)
                 if ms_int < min_ms:
                     ana_summary.append({"run": run, "species": sp, "mw": mw, "z": z,
@@ -304,12 +341,16 @@ def run(out_dir: Path, calibrant_csv: Path, analyte_csv: Path | None = None,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="CCS calibration for TW-IMS data.")
-    parser.add_argument("-o", "--output", required=True)
-    parser.add_argument("--calibrant-csv", required=True)
-    parser.add_argument("--analyte-csv", default=None)
-    parser.add_argument("--conversion-method", default="direct", choices=["direct", "twostep"])
+    parser.add_argument("-o", "--output", required=True, help="Output directory")
+    parser.add_argument("--data-dir", required=True, nargs="+",
+                        help="Directory(s) with converted _ms.txt/_im.txt files")
+    parser.add_argument("--calibrant-csv", required=True, help="Calibrant CSV")
+    parser.add_argument("--analyte-csv", default=None, help="Analyte CSV (optional)")
+    parser.add_argument("--conversion-method", default="direct",
+                        choices=["direct", "twostep"])
     args = parser.parse_args()
     run(Path(args.output).resolve(),
+        [Path(d).resolve() for d in args.data_dir],
         Path(args.calibrant_csv).resolve(),
         Path(args.analyte_csv).resolve() if args.analyte_csv else None,
         args.conversion_method)

@@ -1,8 +1,8 @@
-name,formula,mw,z,mz,ccs,data_dir,raw_path,mz_window,peak_select,min_ms_intensity,min_im_intensity,peak_height_frac
-Betaine,C5H11NO2,117.079,1,118.087,121.3,output/waters_20260320_tunemix/_converted,data_2_waters/20260320_tunemix_agilent_on_water/20260320_BETAINE_V2.raw,auto,highest,50,500,0.1
-Hexakis-C2,C12H18F12N3O6P3,621.022,1,622.03,203.0,output/waters_20260320_tunemix/_converted,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw,auto,highest,50,500,0.1
-Hexakis-C3,C18H18F24N3O6P3,921.003,1,922.01,243.6,output/waters_20260320_tunemix/_converted,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw,auto,highest,50,500,0.1
-Hexakis-C4,C24H18F36N3O6P3,1220.983,1,1221.991,282.2,output/waters_20260320_tunemix/_converted,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw,auto,highest,50,500,0.1
-Hexakis-C5,C30H18F48N3O6P3,1520.964,1,1521.972,317.0,output/waters_20260320_tunemix/_converted,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw,auto,highest,50,500,0.1
-Hexakis-C6,C36H18F60N3O6P3,1820.945,1,1821.953,351.2,output/waters_20260320_tunemix/_converted,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw,auto,highest,50,500,0.1
-Hexakis-C7,C42H18F72N3O6P3,2120.926,1,2121.934,383.0,output/waters_20260320_tunemix/_converted,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw,auto,highest,50,500,0.1
+name,formula,mw,z,mz,ccs,mz_window,peak_select,min_ms_intensity,min_im_intensity,peak_height_frac,raw_path
+Betaine,C5H11NO2,117.079,1,118.087,121.3,auto,highest,50,500,0.1,data_2_waters/20260320_tunemix_agilent_on_water/20260320_BETAINE_V2.raw
+Hexakis-C2,C12H18F12N3O6P3,621.022,1,622.03,203.0,auto,highest,50,500,0.1,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw
+Hexakis-C3,C18H18F24N3O6P3,921.003,1,922.01,243.6,auto,highest,50,500,0.1,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw
+Hexakis-C4,C24H18F36N3O6P3,1220.983,1,1221.991,282.2,auto,highest,50,500,0.1,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw
+Hexakis-C5,C30H18F48N3O6P3,1520.964,1,1521.972,317.0,auto,highest,50,500,0.1,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw
+Hexakis-C6,C36H18F60N3O6P3,1820.945,1,1821.953,351.2,auto,highest,50,500,0.1,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw
+Hexakis-C7,C42H18F72N3O6P3,2120.926,1,2121.934,383.0,auto,highest,50,500,0.1,data_2_waters/20260320_tunemix_agilent_on_water/20260320_AGILENT_TUNE_MIX_V2.raw

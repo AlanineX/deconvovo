@@ -49,6 +49,11 @@ class CcsAnalytePanel(QWidget):
         row2.addWidget(self.pick_ana_csv, stretch=1)
         ctrl.addLayout(row2)
 
+        row_data = QHBoxLayout()
+        self.pick_data = DirPicker("Data dir:", dialog_title="Select directory with _ms.txt/_im.txt")
+        row_data.addWidget(self.pick_data, stretch=1)
+        ctrl.addLayout(row_data)
+
         row3 = QHBoxLayout()
         self.pick_out = DirPicker("Output:", dialog_title="Select output directory")
         row3.addWidget(self.pick_out, stretch=1)
@@ -107,10 +112,11 @@ class CcsAnalytePanel(QWidget):
     def _run(self):
         cal_csv = self.pick_cal_csv.path()
         ana_csv = self.pick_ana_csv.path()
+        data = self.pick_data.path()
         out = self.pick_out.path()
 
-        if not cal_csv or not ana_csv or not out:
-            self._log.log("Set calibrant CSV, analyte CSV, and output directory.", "warning")
+        if not cal_csv or not ana_csv or not data or not out:
+            self._log.log("Set all fields: calibrant CSV, analyte CSV, data dir, output.", "warning")
             return
 
         method = self.combo_method.currentText()
@@ -119,12 +125,12 @@ class CcsAnalytePanel(QWidget):
         self.progress.setRange(0, 0)
         self._log.log(f"Computing analyte CCS ({method})...", "accent")
 
-        self._worker = Worker(self._do_run, cal_csv, ana_csv, out, method)
+        self._worker = Worker(self._do_run, cal_csv, ana_csv, data, out, method)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _do_run(self, cal_csv, ana_csv, out, method):
+    def _do_run(self, cal_csv, ana_csv, data_dir, out, method):
         import logging
         logger = logging.getLogger("ccs_calibrate")
         handler = self._log.get_handler()
@@ -132,7 +138,7 @@ class CcsAnalytePanel(QWidget):
         try:
             from deconvovo.imms_ccs_calibrate import run as ccs_run
             return ccs_run(
-                Path(out), Path(cal_csv),
+                Path(out), Path(data_dir), Path(cal_csv),
                 analyte_csv=Path(ana_csv),
                 conversion_method=method,
             )

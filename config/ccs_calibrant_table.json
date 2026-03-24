@@ -1,0 +1,75 @@
+{
+  "source": "Ruotolo & Robinson, Nature Protocols 3(7):1139-1152, 2008, Table 2",
+  "note": "Most extended conformer CCS used at each charge state. Entries marked 'a' (metastable) in the paper are noted. CCS in Angstrom^2, measured in N2.",
+  "gas_mw": 28.014,
+  "proteins": {
+    "ubiquitin": {
+      "mw": 8565.0,
+      "native_z_range": [5, 7],
+      "unfolded_z_range": [8, 13],
+      "ccs": {
+        "6":  1525,
+        "7":  1580,
+        "8":  1622,
+        "9":  1649,
+        "10": 1732,
+        "11": 1802
+      },
+      "_note_multiple_conformers": {
+        "6": [1041, 1220, 1525],
+        "7": [1317, 1580],
+        "8": [1442, 1622]
+      },
+      "_metastable": [6]
+    },
+    "cytochrome_c": {
+      "mw": 12359.0,
+      "native_z_range": [6, 8],
+      "unfolded_z_range": [10, 21],
+      "ccs": {
+        "7":  1247,
+        "10": 2226,
+        "11": 2303,
+        "12": 2335,
+        "13": 2391,
+        "14": 2473,
+        "15": 2579,
+        "16": 2679,
+        "17": 2723,
+        "18": 2766
+      },
+      "_note_multiple_conformers": {
+        "8": [1845, 2061],
+        "9": [1964, 2215]
+      },
+      "_metastable": [8, 9],
+      "_note": "z=8 and z=9 excluded — both conformers are metastable (a) in the paper"
+    },
+    "myoglobin": {
+      "mw": 16952.0,
+      "native_z_range": [7, 9],
+      "unfolded_z_range": [11, 25],
+      "ccs": {
+        "8":  1673,
+        "9":  1758,
+        "11": 2942,
+        "12": 3044,
+        "13": 3136,
+        "14": 3143,
+        "15": 3230,
+        "16": 3313,
+        "17": 3384,
+        "18": 3489,
+        "19": 3570,
+        "20": 3682,
+        "21": 3792,
+        "22": 3815
+      },
+      "_note_multiple_conformers": {
+        "10": [1879, 2796]
+      },
+      "_metastable": [10],
+      "_note": "z=10 excluded — both conformers are metastable (a) in the paper"
+    }
+  }
+}

@@ -76,8 +76,8 @@ class CcsCalibrationPanel(QWidget):
         self.plot_cal = PlotCanvas(figsize=(8, 3.5), nrows=1, ncols=2)
         plot_tabs.addTab(self.plot_cal, "Calibration Curve")
 
-        # Drift profile of selected calibrant
-        self.plot_drift = PlotCanvas(figsize=(8, 3.5))
+        # Drift profiles — grid of all calibrants
+        self.plot_drift = PlotCanvas(figsize=(8, 6), nrows=3, ncols=3)
         plot_tabs.addTab(self.plot_drift, "Drift Profiles")
 
         # Summary table
@@ -154,7 +154,6 @@ class CcsCalibrationPanel(QWidget):
         self._worker.start()
 
     def _do_calibrate(self, csv_path: str, out_dir: str, method: str):
-        # Attach log handler
         import logging
         logger = logging.getLogger("ccs_calibrate")
         handler = self._log.get_handler()
@@ -185,6 +184,9 @@ class CcsCalibrationPanel(QWidget):
 
         # Update calibration plot
         self._draw_calibration(cal)
+
+        # Draw drift profiles from saved PNGs
+        self._draw_drift_profiles()
 
         # Load summary table
         out_dir = self.pick_out.path()
@@ -227,7 +229,7 @@ class CcsCalibrationPanel(QWidget):
                  linewidth=1.5, alpha=0.8)
         ax1.set_xlabel("ln(t'_D)")
         ax1.set_ylabel("ln(Ω')")
-        ax1.set_title(f"Fit 1: ln-ln  (R² = {cal['r2_lnln']:.5f})", fontsize=10)
+        ax1.set_title(f"ln-ln  R² = {cal['r2_lnln']:.5f}", fontsize=10)
         ax1.grid(True, alpha=0.3)
 
         # Panel 2: linear diagnostic
@@ -244,11 +246,51 @@ class CcsCalibrationPanel(QWidget):
                  linewidth=1.5, alpha=0.8)
         ax2.set_xlabel("t''_D")
         ax2.set_ylabel("CCS (Å²)")
-        ax2.set_title(f"Fit 2: diagnostic  (R² = {cal['r2_linear_diagnostic']:.5f})",
-                      fontsize=10)
+        ax2.set_title(f"Diagnostic  R² = {cal['r2_linear_diagnostic']:.5f}", fontsize=10)
         ax2.grid(True, alpha=0.3)
 
         self.plot_cal.refresh()
+
+    def _draw_drift_profiles(self):
+        """Load calibrant drift profile PNGs and display in grid."""
+        out_dir = Path(self.pick_out.path())
+        png_dir = out_dir / "cali_png"
+        if not png_dir.exists():
+            return
+
+        pngs = sorted(png_dir.glob("*.png"))
+        if not pngs:
+            return
+
+        # Resize grid to fit the number of profiles
+        n = len(pngs)
+        ncols = min(3, n)
+        nrows = math.ceil(n / ncols)
+
+        # Recreate the canvas with correct grid
+        from gui.widgets.plot_canvas import PlotCanvas
+        old = self.plot_drift
+        parent_tabs = old.parent()
+        idx = parent_tabs.indexOf(old)
+
+        self.plot_drift = PlotCanvas(figsize=(8, max(3, nrows * 2.5)), nrows=nrows, ncols=ncols)
+        parent_tabs.removeTab(idx)
+        parent_tabs.insertTab(idx, self.plot_drift, "Drift Profiles")
+
+        import matplotlib.image as mpimg
+        for i, png_path in enumerate(pngs):
+            r, c = divmod(i, ncols)
+            ax = self.plot_drift.ax(r, c)
+            img = mpimg.imread(str(png_path))
+            ax.imshow(img)
+            ax.set_axis_off()
+
+        # Hide unused axes
+        for i in range(n, nrows * ncols):
+            r, c = divmod(i, ncols)
+            self.plot_drift.ax(r, c).set_visible(False)
+
+        self.plot_drift.refresh()
 
     def get_calibration(self) -> dict | None:
         """Return current calibration dict (used by Analyte panel)."""

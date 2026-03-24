@@ -9,7 +9,6 @@ import numpy as np
 from deconvovo.ccs_convert import significant_range
 
 
-
 _FS = 16  # base font size — everything else scales from this
 
 def _get_plt():
@@ -89,15 +88,14 @@ def plot_drift_profile(profile, pusher_us, all_peaks, selected, name, z, mz,
                    edgecolors="black" if is_sel else c, linewidth=1.0)
         label = f"{pk['drift_time_ms']:.2f} ms"
         if is_sel:
-            label += " [SELECTED]"
+            label += " [SEL]"
         ax.annotate(label, (dt[b], profile[b]),
-                    fontsize=_FS * (0.75 if is_sel else 0.65),
+                    fontsize=_FS * (0.65 if is_sel else 0.55),
                     fontweight="bold" if is_sel else "normal", color=c,
                     textcoords="offset points", xytext=(5, 8), alpha=0.9)
     ax.set_xlabel("Drift Time (ms)"); ax.set_ylabel("Intensity")
-    title1 = f"{name} z={z}+ — {len(all_peaks)} peaks"
-    title2 = f"MW={mw:.1f} Da, m/z={mz:.2f}, extraction ±{mz_window:.1f} Da"
-    ax.set_title(f"{title1}\n{title2}", fontsize=_FS * 0.85)
+    ax.set_title(f"{name}  z={z}+  |  m/z {mz:.2f} ± {mz_window:.1f} Da",
+                 fontsize=_FS * 0.9)
     nz = np.nonzero(profile)[0]
     if len(nz) > 0:
         ax.set_xlim(max(0, nz[0] - 5) * pusher_us / 1000,
@@ -131,9 +129,8 @@ def plot_ccs_single(ccs_raw, int_raw, ccs_sm, int_sm, species, run, style,
     lo, hi = significant_range(ref_c, ref_i)
     ax.set_xlim(lo, hi)
     ax.set_xlabel("CCS (Å²)"); ax.set_ylabel("Normalized Intensity")
-    ax.set_title(f"{run} — {species} ({style})\n"
-                 f"MW={mw:.1f} Da, z={z}, m/z={mz:.2f}, extraction ±{mz_window:.1f} Da",
-                 fontsize=_FS * 0.85)
+    ax.set_title(f"{species}  z={z}  |  {run}  ({style})",
+                 fontsize=_FS * 0.9)
     if style == "Overlay":
         ax.legend()
     fig.tight_layout()

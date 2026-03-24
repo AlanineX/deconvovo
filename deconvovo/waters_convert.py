@@ -43,7 +43,7 @@ def find_cdcreader() -> Path:
         if candidate.exists():
             return candidate
 
-    # Check UniDec package
+    # Check UniDec package in current environment
     try:
         import unidec
         pkg_dir = Path(unidec.__file__).parent
@@ -53,8 +53,15 @@ def find_cdcreader() -> Path:
     except ImportError:
         pass
 
+    # Search venvs in project directory (e.g. .venv-ms/)
+    project_root = Path(__file__).parent.parent
+    for venv_dir in sorted(project_root.glob(".venv*")):
+        for candidate in venv_dir.rglob("CDCReader.exe"):
+            return candidate
+
     raise FileNotFoundError(
-        "CDCReader.exe not found. Install UniDec: pip install unidec"
+        "CDCReader.exe not found. Install UniDec (pip install unidec) "
+        "or ensure a .venv* directory with UniDec exists in the project root."
     )
 
 

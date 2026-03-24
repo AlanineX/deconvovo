@@ -32,8 +32,13 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DeconVoVo — IM-MS Analysis Suite")
-        self.setMinimumSize(1200, 780)
-        self.resize(1400, 860)
+        self.setMinimumSize(900, 600)
+        # Adaptive size: 85% of screen, capped at 1400x860
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        w = min(int(screen.width() * 0.85), 1400)
+        h = min(int(screen.height() * 0.85), 860)
+        self.resize(w, h)
 
         central = QWidget()
         self.setCentralWidget(central)

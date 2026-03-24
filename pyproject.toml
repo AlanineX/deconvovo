@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deconvovo"
+version = "0.1.0"
+description = "Waters IM-MS analysis pipeline with interactive 2D viewer"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "plotly",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+deconv = ["unidec"]
+gui = ["PySide6"]
+
+[project.scripts]
+deconvovo = "deconvovo.cli:main"
+deconvovo-gui = "gui.app:main"
+
+[tool.setuptools]
+packages = ["deconvovo", "deconvovo.vendors", "gui", "gui.widgets", "gui.panels"]

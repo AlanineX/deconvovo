@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/DeconVoVo/
+*.spec.bak
+
+# Virtual environments
+.venv*/
+venv*/
+
+# Data (raw instrument files — too large for git)
+data_*/
+output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+*.manifest
+*.pem
+
+# Logs
+*.log
+
+# Temp / tools / non-project files
+/tmp/
+.claude/
+.tool_home/
+scripts/stale_v1/
+my_ref/
+tools/
+skills/
+instrument_params_test1.csv
+launch_*.sh
+HDX_WORKFLOW_REUSABLE.md
+MS_WORKSPACE_ARCHITECTURE.md
+VISUALIZATION_TOOLS.md

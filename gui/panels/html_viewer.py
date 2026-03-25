@@ -67,7 +67,7 @@ class HtmlViewerPanel(QWidget):
             hint="Directory with converted text files (_ms.txt and _im.txt)")
         self.pick_raw = DirPicker("Raw dir:",
             dialog_title="Select directory with .raw folders",
-            hint="Provides pusher period for drift time axis (leave empty to use bin index)")
+            hint="Reads pusher period from .raw to convert drift bins to time (ms). Without this, y-axis shows bin numbers.")
         gl_in.addWidget(self.pick_data)
         gl_in.addWidget(self.pick_raw)
         layout.addWidget(grp_in)

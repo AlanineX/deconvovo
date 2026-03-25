@@ -98,8 +98,15 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     if n_points == 0:
         return
 
-    pd.DataFrame({"mz": mz_nz, "drift_bin": drift_nz, "intensity": int_nz}).to_csv(
-        out_dir / f"{run_name}_2d_imms.csv", index=False, float_format="%.4f")
+    # Compute drift time if pusher period is known
+    if pusher_us:
+        drift_time_nz = (drift_nz.astype(float) + 0.5) * pusher_us / 1000.0
+        pd.DataFrame({"mz": mz_nz, "drift_bin": drift_nz,
+                       "drift_time_ms": drift_time_nz, "intensity": int_nz}).to_csv(
+            out_dir / f"{run_name}_2d_imms.csv", index=False, float_format="%.4f")
+    else:
+        pd.DataFrame({"mz": mz_nz, "drift_bin": drift_nz, "intensity": int_nz}).to_csv(
+            out_dir / f"{run_name}_2d_imms.csv", index=False, float_format="%.4f")
 
     # --- Build heatmap grid ---
     mz_lo, mz_hi = float(mz_nz.min()), float(mz_nz.max())

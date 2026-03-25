@@ -1,16 +1,31 @@
 """2D IM-MS HTML viewer generation panel."""
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QPushButton, QProgressBar, QCheckBox, QSpinBox,
+    QPushButton, QProgressBar, QCheckBox, QSpinBox, QComboBox,
 )
 
 from gui.widgets.file_picker import DirPicker
 from gui.widgets.log_panel import LogPanel
 from gui.widgets.worker import Worker
+
+
+def _load_config():
+    """Load imms_plot_config.json for populating GUI defaults."""
+    if getattr(sys, 'frozen', False):
+        base = Path(sys._MEIPASS)
+    else:
+        base = Path(__file__).parent.parent.parent
+    cfg_path = base / "config" / "imms_plot_config.json"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            return json.load(f)
+    return {}
 
 
 class HtmlViewerPanel(QWidget):
@@ -28,14 +43,17 @@ class HtmlViewerPanel(QWidget):
         layout.addWidget(title)
         sub = QLabel("Generate interactive HTML heatmaps with linked drift and m/z panels.")
         sub.setProperty("subtitle", True)
-        sub.setWordWrap(True)
         layout.addWidget(sub)
 
         # Input
         grp_in = QGroupBox("Input")
         gl_in = QVBoxLayout(grp_in)
-        self.pick_data = DirPicker("Converted dir:", dialog_title="Select directory with _ms.txt / _im.txt files")
-        self.pick_raw = DirPicker("Raw dir (opt.):", dialog_title="Optional: .raw dir for drift time axis")
+        self.pick_data = DirPicker("Text dir:",
+            dialog_title="Select directory with _ms.txt / _im.txt files",
+            hint="Directory with converted text files (_ms.txt and _im.txt)")
+        self.pick_raw = DirPicker("Raw dir:",
+            dialog_title="Select directory with .raw folders",
+            hint="Provides pusher period for drift time axis (leave empty to use bin index)")
         gl_in.addWidget(self.pick_data)
         gl_in.addWidget(self.pick_raw)
         layout.addWidget(grp_in)
@@ -43,22 +61,77 @@ class HtmlViewerPanel(QWidget):
         # Output
         grp_out = QGroupBox("Output")
         gl_out = QVBoxLayout(grp_out)
-        self.pick_out = DirPicker("Output dir:", dialog_title="Select output directory for HTML files")
+        self.pick_out = DirPicker("Output dir:",
+            dialog_title="Select output directory for HTML files",
+            hint="HTML viewer files and companion CSVs will be written here")
         gl_out.addWidget(self.pick_out)
         layout.addWidget(grp_out)
 
-        # Options
+        # Options — load defaults from config
+        cfg = _load_config()
+        defaults = cfg.get("defaults", {})
+        presets = cfg.get("presets", {})
+
         opts = QGroupBox("Options")
-        ol = QHBoxLayout(opts)
+        ol = QVBoxLayout(opts)
+
+        # Row 1: skip, workers
+        row1 = QHBoxLayout()
         self.chk_skip = QCheckBox("Skip existing")
         self.chk_skip.setChecked(True)
-        ol.addWidget(self.chk_skip)
-        ol.addStretch()
-        ol.addWidget(QLabel("Workers:"))
+        row1.addWidget(self.chk_skip)
+        row1.addStretch()
+        row1.addWidget(QLabel("Workers:"))
         self.spin_workers = QSpinBox()
         self.spin_workers.setRange(1, 16)
         self.spin_workers.setValue(8)
-        ol.addWidget(self.spin_workers)
+        row1.addWidget(self.spin_workers)
+        ol.addLayout(row1)
+
+        # Row 2: m/z bins, colormap
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("m/z bins:"))
+        self.spin_mzbins = QSpinBox()
+        self.spin_mzbins.setRange(100, 25600)
+        self.spin_mzbins.setSingleStep(200)
+        self.spin_mzbins.setValue(defaults.get("mz_bins", 3200))
+        row2.addWidget(self.spin_mzbins)
+        row2.addSpacing(16)
+        row2.addWidget(QLabel("Colormap:"))
+        self.combo_cmap = QComboBox()
+        cmap_names = []
+        for c in presets.get("colormap", ["Viridis"]):
+            if isinstance(c, str):
+                cmap_names.append(c)
+            elif isinstance(c, dict) and "name" in c:
+                cmap_names.append(c["name"])
+        self.combo_cmap.addItems(cmap_names)
+        default_cmap = defaults.get("colormap", "Viridis")
+        if default_cmap in cmap_names:
+            self.combo_cmap.setCurrentText(default_cmap)
+        row2.addWidget(self.combo_cmap)
+        row2.addStretch()
+        ol.addLayout(row2)
+
+        # Row 3: figure size
+        row3 = QHBoxLayout()
+        fig_cfg = cfg.get("figure", {})
+        row3.addWidget(QLabel("Width:"))
+        self.spin_width = QSpinBox()
+        self.spin_width.setRange(600, 2400)
+        self.spin_width.setSingleStep(100)
+        self.spin_width.setValue(fig_cfg.get("width", 1190))
+        row3.addWidget(self.spin_width)
+        row3.addSpacing(16)
+        row3.addWidget(QLabel("Height:"))
+        self.spin_height = QSpinBox()
+        self.spin_height.setRange(400, 1600)
+        self.spin_height.setSingleStep(100)
+        self.spin_height.setValue(fig_cfg.get("height", 680))
+        row3.addWidget(self.spin_height)
+        row3.addStretch()
+        ol.addLayout(row3)
+
         layout.addWidget(opts)
 
         run_row = QHBoxLayout()
@@ -80,24 +153,24 @@ class HtmlViewerPanel(QWidget):
         data = self.pick_data.path()
         out = self.pick_out.path()
         if not data or not out:
-            self._log.log("Set converted directory and output directory.", "warning")
+            self._log.log("Set text directory and output directory.", "warning")
             return
-
         raw = self.pick_raw.path() or None
         skip = self.chk_skip.isChecked()
         workers = self.spin_workers.value()
+        mz_bins = self.spin_mzbins.value()
 
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
-        self._log.log(f"Generating HTML plots from {data}...", "accent")
+        self._log.log(f"Generating HTML plots ({mz_bins} m/z bins)...", "accent")
 
-        self._worker = Worker(self._do_plot, data, out, raw, skip, workers)
+        self._worker = Worker(self._do_plot, data, out, raw, skip, workers, mz_bins)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _do_plot(self, data, out, raw, skip, workers):
+    def _do_plot(self, data, out, raw, skip, workers, mz_bins):
         data_p = Path(data)
         im_files = list(data_p.glob("*_im.txt"))
         self._log._sig.message.emit(
@@ -105,7 +178,6 @@ class HtmlViewerPanel(QWidget):
         if not im_files:
             raise FileNotFoundError(f"No _im.txt files found in {data}")
 
-        # Delete any 0-byte HTML from previous failed runs
         out_p = Path(out)
         for stale in out_p.glob("*_2d_imms.html"):
             if stale.stat().st_size == 0:
@@ -119,7 +191,6 @@ class HtmlViewerPanel(QWidget):
             raw_dir=Path(raw) if raw else None,
             n_workers=workers,
         )
-        # Surface per-run errors
         errors = []
         if results:
             for r in results:
@@ -141,7 +212,7 @@ class HtmlViewerPanel(QWidget):
         n_empty = len(htmls) - n_ok
         msg = f"Done: {n_ok} HTML files"
         if n_empty:
-            msg += f" ({n_empty} empty — check log)"
+            msg += f" ({n_empty} empty)"
         self._log.log(msg, "success" if not n_empty else "warning")
 
     def _on_error(self, msg):

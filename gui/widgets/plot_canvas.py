@@ -8,20 +8,31 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from gui.theme import mpl_rc
 
+# Module-level flag — toggled by app._toggle_theme()
+_dark_mode = True
+
+
+def set_plot_dark(dark: bool):
+    global _dark_mode
+    _dark_mode = dark
+
 
 class PlotCanvas(QWidget):
-    """Embeddable matplotlib figure with dark theme.
+    """Embeddable matplotlib figure. Follows app dark/light mode."""
 
-    Uses per-figure styling — does NOT modify global rcParams,
-    so PNG output from ccs_plot.py keeps its own (light) theme.
-    """
     def __init__(self, parent=None, figsize=(6, 3.5), nrows=1, ncols=1):
         super().__init__(parent)
-        rc = mpl_rc(dark=True)
-        self.fig = Figure(figsize=figsize, constrained_layout=True,
-                          facecolor=rc["figure.facecolor"])
+        self.fig = Figure(figsize=figsize, constrained_layout=True)
         self.axes = self.fig.subplots(nrows, ncols, squeeze=False)
-        # Apply dark theme per-axes, not globally
+        self._apply_theme()
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.canvas)
+
+    def _apply_theme(self):
+        rc = mpl_rc(dark=_dark_mode)
+        self.fig.set_facecolor(rc["figure.facecolor"])
         for row in self.axes:
             for ax in row:
                 ax.set_facecolor(rc["axes.facecolor"])
@@ -32,21 +43,16 @@ class PlotCanvas(QWidget):
                 for spine in ax.spines.values():
                     spine.set_color(rc["axes.edgecolor"])
 
-        self.canvas = FigureCanvasQTAgg(self.fig)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.canvas)
-
     def ax(self, row=0, col=0):
         return self.axes[row][col]
 
     def clear(self):
-        rc = mpl_rc(dark=True)
         for row in self.axes:
             for a in row:
                 a.clear()
-                a.set_facecolor(rc["axes.facecolor"])
+        self._apply_theme()
         self.canvas.draw_idle()
 
     def refresh(self):
+        self._apply_theme()
         self.canvas.draw_idle()

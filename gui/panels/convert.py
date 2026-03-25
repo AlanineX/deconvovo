@@ -1,4 +1,4 @@
-"""Convert .raw → text panel."""
+"""Convert .raw to text panel."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,7 +23,7 @@ class ConvertPanel(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Convert Waters .raw → Text")
+        title = QLabel("Convert Waters .raw to Text")
         title.setProperty("title", True)
         layout.addWidget(title)
         sub = QLabel("Extract MS and IM data from Waters MassLynx .raw directories using CDCReader.")
@@ -33,8 +33,12 @@ class ConvertPanel(QWidget):
 
         grp = QGroupBox("Paths")
         gl = QVBoxLayout(grp)
-        self.pick_input = DirPicker("Input (.raw):", dialog_title="Select directory containing .raw folders")
-        self.pick_output = DirPicker("Output:", dialog_title="Select output directory")
+        self.pick_input = DirPicker("Input dir:",
+            dialog_title="Select directory containing .raw folders",
+            hint="Directory containing one or more .raw folders from MassLynx acquisition")
+        self.pick_output = DirPicker("Output dir:",
+            dialog_title="Select output directory",
+            hint="Directory where converted _ms.txt and _im.txt files will be written")
         gl.addWidget(self.pick_input)
         gl.addWidget(self.pick_output)
         layout.addWidget(grp)
@@ -73,19 +77,17 @@ class ConvertPanel(QWidget):
         if not inp or not out:
             self._log.log("Set input and output directories first.", "warning")
             return
-
         workers = self.spin_workers.value()
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
-        self._log.log(f"Converting {inp} → {out} (workers={workers})", "accent")
-
+        self._log.log(f"Converting {inp} (workers={workers})", "accent")
         self._worker = Worker(self._do_convert, inp, out, workers)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _do_convert(self, inp: str, out: str, workers: int):
+    def _do_convert(self, inp, out, workers):
         from deconvovo.imms_convert import run as convert_run
         return convert_run(Path(inp), Path(out), n_workers=workers)
 

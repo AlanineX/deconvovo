@@ -132,6 +132,8 @@ class MainWindow(QMainWindow):
         self._dark = not self._dark
         QApplication.instance().setStyleSheet(stylesheet(dark=self._dark))
         self.btn_theme.setText("Dark Mode" if not self._dark else "Light Mode")
+        from gui.widgets.plot_canvas import set_plot_dark
+        set_plot_dark(self._dark)
 
     def get_panel(self, idx: int):
         return self._panels[idx]

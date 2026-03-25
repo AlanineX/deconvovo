@@ -192,7 +192,7 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     fig.add_trace(go.Heatmap(
         z=np.log10(sub_raw + 1), x=sub_mz, y=drift_bins,
         colorscale=dfl.get("colormap", "Viridis"),
-        colorbar=dict(title=dict(text="log₁₀(I+1)", side="top"),
+        colorbar=dict(title=dict(text="log10(I+1)", side="top"),
                       len=0.76, y=0.62, thickness=22),
         zsmooth="best",
         hovertemplate="m/z: %{x:.2f}<br>Drift: %{y:.3f}<br>log(I+1): %{z:.2f}<extra></extra>",
@@ -330,8 +330,8 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
 #exportpanel button:hover{{background:#ddd}}
 </style></head><body>
 <div id="title">{run_name}</div>
-<div id="subtitle">{n_points:,} IM points · {len(ms_mz):,} MS points · {f'{pusher_us:.2f} μs/bin' if pusher_us else 'uncalibrated'} ·
-  Double-click to reset zoom · 🏠 resets all</div>
+<div id="subtitle">{n_points:,} IM points &middot; {len(ms_mz):,} MS points &middot; {f'{pusher_us:.2f} &mu;s/bin' if pusher_us else 'uncalibrated'} &middot;
+  Double-click to reset zoom &middot; &#x1F3E0; resets all</div>
 <div id="toolbar">
   <div class="ctl">
     <label>2D Smooth:</label>

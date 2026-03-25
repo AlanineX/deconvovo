@@ -1,10 +1,26 @@
 """Background worker thread for long-running pipeline tasks."""
 from __future__ import annotations
 
+import os
 import traceback
 from typing import Callable, Any
 
 from PySide6.QtCore import QThread, Signal
+
+
+# Flag that pipeline code checks to disable multiprocessing inside GUI
+_IN_GUI = False
+
+
+def set_gui_mode():
+    """Call at app startup to signal pipeline code to avoid multiprocessing."""
+    global _IN_GUI
+    _IN_GUI = True
+    os.environ["DECONVOVO_GUI"] = "1"
+
+
+def in_gui() -> bool:
+    return _IN_GUI or os.environ.get("DECONVOVO_GUI") == "1"
 
 
 class Worker(QThread):
@@ -23,8 +39,6 @@ class Worker(QThread):
 
     def run(self):
         try:
-            # Force non-interactive matplotlib backend in worker threads
-            # to prevent extra windows spawning on Windows
             import matplotlib
             matplotlib.use("Agg")
             result = self._fn(*self._args, **self._kwargs)

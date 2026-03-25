@@ -233,10 +233,14 @@ def stylesheet(dark: bool = True) -> str:
 
     QCheckBox {{ background-color: transparent; spacing: 6px; }}
     QCheckBox::indicator {{
-        width: 16px; height: 16px; border: 1px solid {p['border']};
-        border-radius: 3px; background-color: {p['bg_input']};
+        width: 18px; height: 18px; border: 2px solid {p['border']};
+        border-radius: 4px; background-color: {p['bg_input']};
+    }}
+    QCheckBox::indicator:hover {{
+        border-color: {ACCENT};
     }}
     QCheckBox::indicator:checked {{
-        background-color: {ACCENT}; border-color: {ACCENT};
+        border-color: {ACCENT}; background-color: {ACCENT};
+        image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 8l3 3 7-7' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     }}
     """

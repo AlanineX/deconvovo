@@ -19,11 +19,15 @@ Requirements:
 """
 from __future__ import annotations
 
+import os
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 
 
 class TaskQueue:
     def __init__(self, n_workers: int = 8):
+        # Force sequential in GUI to prevent spawning new windows
+        if os.environ.get("DECONVOVO_GUI") == "1":
+            n_workers = 1
         self.n_workers = n_workers
         self.tasks: list[tuple] = []  # (id, fn, args, deps)
 

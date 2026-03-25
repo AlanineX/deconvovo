@@ -26,22 +26,28 @@ class HtmlViewerPanel(QWidget):
         title = QLabel("2D IM-MS Interactive Viewer")
         title.setProperty("title", True)
         layout.addWidget(title)
-        sub = QLabel("Generate interactive HTML heatmaps with linked drift and m/z panels. "
-                     "Opens in your web browser.")
+        sub = QLabel("Generate interactive HTML heatmaps with linked drift and m/z panels.")
         sub.setProperty("subtitle", True)
         sub.setWordWrap(True)
         layout.addWidget(sub)
 
-        grp = QGroupBox("Paths")
-        gl = QVBoxLayout(grp)
-        self.pick_data = DirPicker("Converted dir:", dialog_title="Select directory with _ms.txt / _im.txt")
-        self.pick_out = DirPicker("Output:", dialog_title="Select output directory for HTML files")
-        self.pick_raw = DirPicker("Raw dir (opt.):", dialog_title="Optional: .raw dir for drift time axis (pusher period)")
-        gl.addWidget(self.pick_data)
-        gl.addWidget(self.pick_out)
-        gl.addWidget(self.pick_raw)
-        layout.addWidget(grp)
+        # Input
+        grp_in = QGroupBox("Input")
+        gl_in = QVBoxLayout(grp_in)
+        self.pick_data = DirPicker("Converted dir:", dialog_title="Select directory with _ms.txt / _im.txt files")
+        self.pick_raw = DirPicker("Raw dir (opt.):", dialog_title="Optional: .raw dir for drift time axis")
+        gl_in.addWidget(self.pick_data)
+        gl_in.addWidget(self.pick_raw)
+        layout.addWidget(grp_in)
 
+        # Output
+        grp_out = QGroupBox("Output")
+        gl_out = QVBoxLayout(grp_out)
+        self.pick_out = DirPicker("Output dir:", dialog_title="Select output directory for HTML files")
+        gl_out.addWidget(self.pick_out)
+        layout.addWidget(grp_out)
+
+        # Options
         opts = QGroupBox("Options")
         ol = QHBoxLayout(opts)
         self.chk_skip = QCheckBox("Skip existing")
@@ -74,7 +80,7 @@ class HtmlViewerPanel(QWidget):
         data = self.pick_data.path()
         out = self.pick_out.path()
         if not data or not out:
-            self._log.log("Set data and output directories.", "warning")
+            self._log.log("Set converted directory and output directory.", "warning")
             return
 
         raw = self.pick_raw.path() or None

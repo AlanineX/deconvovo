@@ -16,17 +16,25 @@ Requirements for worker functions:
 """
 from __future__ import annotations
 
+import os
 from multiprocessing import Pool
+
+
+def _in_gui() -> bool:
+    return os.environ.get("DECONVOVO_GUI") == "1"
 
 
 def parallel_map(fn, items: list, n_workers: int = 8) -> list:
     """Run fn(item) for each item in parallel. Returns results in input order.
 
-    Falls back to sequential execution when n_workers=1 or len(items)<=1.
+    Falls back to sequential when n_workers=1, len(items)<=1, or running inside GUI.
     """
     n = len(items)
     if n == 0:
         return []
+    # Force sequential in GUI to prevent multiprocessing spawning new windows
+    if _in_gui():
+        n_workers = 1
     n_workers = min(n_workers, n)
     if n_workers <= 1:
         return [fn(item) for item in items]

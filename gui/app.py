@@ -1,10 +1,12 @@
 """DeconVoVo main application window."""
 from __future__ import annotations
 
+import os
 import sys
 
 # Force non-interactive backend BEFORE any matplotlib import
-# Prevents extra windows spawning from worker threads on Windows
+# This MUST be before any deconvovo import that touches matplotlib
+os.environ["MPLBACKEND"] = "Agg"
 import matplotlib
 matplotlib.use("Agg")
 
@@ -45,10 +47,6 @@ class MainWindow(QMainWindow):
         h = min(int(screen.height() * 0.85), 860)
         self.resize(w, h)
 
-        # Translucent background for modern look
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self._apply_platform_blur()
-
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
@@ -85,17 +83,16 @@ class MainWindow(QMainWindow):
         bot_w = QWidget()
         bot_l = QHBoxLayout(bot_w)
         bot_l.setContentsMargins(8, 4, 8, 8)
-        self.btn_theme = QPushButton("Light")
+        self.btn_theme = QPushButton("Light Mode")
         self.btn_theme.setProperty("secondary", True)
-        self.btn_theme.setFixedHeight(24)
-        self.btn_theme.setFixedWidth(50)
+        self.btn_theme.setFixedHeight(26)
         self.btn_theme.clicked.connect(self._toggle_theme)
         bot_l.addWidget(self.btn_theme)
+        bot_l.addStretch()
         from gui import __version__
         ver = QLabel(f"v{__version__}")
         ver.setProperty("subtitle", True)
         bot_l.addWidget(ver)
-        bot_l.addStretch()
         sidebar_l.addWidget(bot_w)
 
         root.addWidget(sidebar_w)
@@ -119,26 +116,28 @@ class MainWindow(QMainWindow):
 
         root.addWidget(right, stretch=1)
 
-    def _apply_platform_blur(self):
-        """Enable acrylic/blur transparency on Windows 10/11. No-op on other OS."""
-        if sys.platform != "win32":
-            return
+        # Apply Windows transparency after window is shown
+        if sys.platform == "win32":
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._apply_win11_backdrop)
+
+    def _apply_win11_backdrop(self):
+        """Apply Windows 11 Mica/Acrylic backdrop. No-op if unsupported."""
         try:
             import ctypes
-            from ctypes import wintypes
             hwnd = int(self.winId())
+            dwm = ctypes.windll.dwmapi
 
-            # Windows 11 Mica / Windows 10 acrylic via DwmSetWindowAttribute
-            class MARGINS(ctypes.Structure):
-                _fields_ = [("cxLeftWidth", ctypes.c_int),
-                             ("cxRightWidth", ctypes.c_int),
-                             ("cyTopHeight", ctypes.c_int),
-                             ("cyBottomHeight", ctypes.c_int)]
+            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            val = ctypes.c_int(1 if self._dark else 0)
+            dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(val), 4)
 
-            margins = MARGINS(-1, -1, -1, -1)
-            ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(margins))
+            # DWMWA_SYSTEMBACKDROP_TYPE = 38 (Win11 22H2+)
+            # 2 = Mica, 3 = Acrylic, 4 = Mica Alt
+            backdrop = ctypes.c_int(3)  # Acrylic
+            dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), 4)
         except Exception:
-            pass  # Not critical — falls back to opaque
+            pass
 
     def _switch_panel(self, idx: int):
         if 0 <= idx < self.stack.count():
@@ -149,13 +148,19 @@ class MainWindow(QMainWindow):
     def _toggle_theme(self):
         self._dark = not self._dark
         QApplication.instance().setStyleSheet(stylesheet(dark=self._dark))
-        self.btn_theme.setText("Dark" if not self._dark else "Light")
+        self.btn_theme.setText("Dark Mode" if not self._dark else "Light Mode")
+        if sys.platform == "win32":
+            self._apply_win11_backdrop()
 
     def get_panel(self, idx: int):
         return self._panels[idx]
 
 
 def main():
+    # Signal pipeline code to avoid multiprocessing (prevents extra windows)
+    from gui.widgets.worker import set_gui_mode
+    set_gui_mode()
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(stylesheet(dark=True))

@@ -830,7 +830,7 @@ P.on('plotly_relayout', function(ed) {{
 }});
 </script></body></html>"""
 
-    (out_dir / f"{run_name}_2d_imms.html").write_text(html)
+    (out_dir / f"{run_name}_2d_imms.html").write_text(html, encoding="utf-8")
 
     # Standalone drift profile removed — the 2D viewer's drift panel
     # serves this purpose with zoom-linked m/z filtering.

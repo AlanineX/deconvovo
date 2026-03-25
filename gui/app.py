@@ -45,6 +45,10 @@ class MainWindow(QMainWindow):
         h = min(int(screen.height() * 0.85), 860)
         self.resize(w, h)
 
+        # Translucent background for modern look
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._apply_platform_blur()
+
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
@@ -114,6 +118,27 @@ class MainWindow(QMainWindow):
         right.setStretchFactor(1, 1)
 
         root.addWidget(right, stretch=1)
+
+    def _apply_platform_blur(self):
+        """Enable acrylic/blur transparency on Windows 10/11. No-op on other OS."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            hwnd = int(self.winId())
+
+            # Windows 11 Mica / Windows 10 acrylic via DwmSetWindowAttribute
+            class MARGINS(ctypes.Structure):
+                _fields_ = [("cxLeftWidth", ctypes.c_int),
+                             ("cxRightWidth", ctypes.c_int),
+                             ("cyTopHeight", ctypes.c_int),
+                             ("cyBottomHeight", ctypes.c_int)]
+
+            margins = MARGINS(-1, -1, -1, -1)
+            ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(margins))
+        except Exception:
+            pass  # Not critical — falls back to opaque
 
     def _switch_panel(self, idx: int):
         if 0 <= idx < self.stack.count():

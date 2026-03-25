@@ -20,9 +20,11 @@ FONT_SIZE_TITLE = 13
 FONT_SIZE_HEADER = 11
 
 # -- Dark palette --
+# Qt uses rgba for translucency, matplotlib needs hex
 _DARK = {
-    "bg":       "#1e1e2e",
-    "bg_mid":   "#252538",
+    "bg":       "rgba(30, 30, 46, 230)",
+    "bg_mid":   "rgba(37, 37, 56, 240)",
+    "bg_mid_hex": "#252538",   # hex fallback for mpl
     "bg_input": "#2e2e44",
     "bg_head":  "#363654",
     "border":   "#3e3e5e",
@@ -37,8 +39,9 @@ _DARK = {
 
 # -- Light palette --
 _LIGHT = {
-    "bg":       "#f4f4f8",
-    "bg_mid":   "#ffffff",
+    "bg":       "rgba(244, 244, 248, 230)",
+    "bg_mid":   "rgba(255, 255, 255, 240)",
+    "bg_mid_hex": "#ffffff",
     "bg_input": "#e8e8f0",
     "bg_head":  "#dcdce8",
     "border":   "#c0c0d0",
@@ -88,7 +91,7 @@ def mpl_rc(dark: bool = True) -> dict:
         "font.family": "sans-serif",
         "font.sans-serif": ["Segoe UI", "Liberation Sans", "Arial"],
         "font.size": 10,
-        "legend.facecolor": p["bg_mid"],
+        "legend.facecolor": p["bg_mid_hex"],
         "legend.edgecolor": p["border"],
         "figure.dpi": 100,
     }

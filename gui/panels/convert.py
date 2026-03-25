@@ -5,14 +5,13 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QPushButton, QProgressBar, QCheckBox, QSpinBox,
+    QPushButton, QProgressBar, QCheckBox,
 )
 from PySide6.QtCore import Qt
 
 from gui.widgets.file_picker import DirPicker
 from gui.widgets.log_panel import LogPanel
 from gui.widgets.worker import Worker
-from gui.theme import TEXT_BRIGHT
 
 
 class ConvertPanel(QWidget):
@@ -25,7 +24,6 @@ class ConvertPanel(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # Title
         title = QLabel("Convert Waters .raw → Text")
         title.setProperty("title", True)
         layout.addWidget(title)
@@ -34,7 +32,6 @@ class ConvertPanel(QWidget):
         sub.setWordWrap(True)
         layout.addWidget(sub)
 
-        # Input / Output
         grp = QGroupBox("Paths")
         gl = QVBoxLayout(grp)
         self.pick_input = DirPicker("Input (.raw):", dialog_title="Select directory containing .raw folders")
@@ -43,25 +40,14 @@ class ConvertPanel(QWidget):
         gl.addWidget(self.pick_output)
         layout.addWidget(grp)
 
-        # Options
         grp2 = QGroupBox("Options")
         ol = QHBoxLayout(grp2)
         self.chk_skip = QCheckBox("Skip existing")
         self.chk_skip.setChecked(True)
         ol.addWidget(self.chk_skip)
-        self.chk_skip_ms = QCheckBox("Skip MS")
-        ol.addWidget(self.chk_skip_ms)
-        self.chk_skip_im = QCheckBox("Skip IM")
-        ol.addWidget(self.chk_skip_im)
         ol.addStretch()
-        ol.addWidget(QLabel("Function:"))
-        self.spin_func = QSpinBox()
-        self.spin_func.setRange(1, 10)
-        self.spin_func.setValue(1)
-        ol.addWidget(self.spin_func)
         layout.addWidget(grp2)
 
-        # Run
         run_row = QHBoxLayout()
         run_row.addStretch()
         self.btn_run = QPushButton("Convert")
@@ -71,7 +57,6 @@ class ConvertPanel(QWidget):
         run_row.addWidget(self.btn_run)
         layout.addLayout(run_row)
 
-        # Progress
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
@@ -87,7 +72,7 @@ class ConvertPanel(QWidget):
 
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
-        self.progress.setRange(0, 0)  # indeterminate
+        self.progress.setRange(0, 0)
         self._log.log(f"Converting {inp} → {out}", "accent")
 
         self._worker = Worker(self._do_convert, inp, out)

@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 import pandas as pd
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QProgressBar, QTabWidget, QComboBox, QSplitter,
 )
 from PySide6.QtCore import Qt
@@ -31,59 +30,42 @@ class CcsAnalytePanel(QWidget):
         title = QLabel("Analyte CCS")
         title.setProperty("title", True)
         layout.addWidget(title)
-        sub = QLabel("Apply a CCS calibration to compute analyte collision cross-sections. "
-                     "Requires a completed calibration (from CCS Calibration panel or JSON file).")
+        sub = QLabel("Apply a CCS calibration to compute analyte collision cross-sections.")
         sub.setProperty("subtitle", True)
-        sub.setWordWrap(True)
         layout.addWidget(sub)
 
         # Controls
-        ctrl = QVBoxLayout()
-        row1 = QHBoxLayout()
-        self.pick_cal_csv = FilePicker("Calibrant CSV:", dialog_title="Select calibrant CSV")
-        row1.addWidget(self.pick_cal_csv, stretch=1)
-        ctrl.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        self.pick_ana_csv = FilePicker("Analyte CSV:", dialog_title="Select analyte CSV")
-        row2.addWidget(self.pick_ana_csv, stretch=1)
-        ctrl.addLayout(row2)
-
-        row_data = QHBoxLayout()
+        self.pick_cal = FilePicker("Calibrant CSV:", dialog_title="Select calibrant CSV")
+        layout.addWidget(self.pick_cal)
+        self.pick_ana = FilePicker("Analyte CSV:", dialog_title="Select analyte CSV")
+        self.pick_ana.path_changed.connect(self._on_csv_changed)
+        layout.addWidget(self.pick_ana)
         self.pick_data = DirPicker("Converted dir:", dialog_title="Select directory with _ms.txt/_im.txt")
-        row_data.addWidget(self.pick_data, stretch=1)
-        ctrl.addLayout(row_data)
+        layout.addWidget(self.pick_data)
 
-        row3 = QHBoxLayout()
+        out_row = QHBoxLayout()
         self.pick_out = DirPicker("Output:", dialog_title="Select output directory")
-        row3.addWidget(self.pick_out, stretch=1)
-        row3.addWidget(QLabel("Method:"))
+        out_row.addWidget(self.pick_out, stretch=1)
+        out_row.addWidget(QLabel("Method:"))
         self.combo_method = QComboBox()
         self.combo_method.addItems(["direct", "twostep"])
         self.combo_method.setFixedWidth(100)
-        row3.addWidget(self.combo_method)
-        ctrl.addLayout(row3)
+        out_row.addWidget(self.combo_method)
+        layout.addLayout(out_row)
 
-        layout.addLayout(ctrl)
-
-        # Splitter: analyte table | results
+        # Splitter: table | summary
         splitter = QSplitter(Qt.Horizontal)
-
         self.table = CsvTable(editable=True)
-        self.pick_ana_csv.path_changed.connect(self._on_ana_csv_changed)
         splitter.addWidget(self.table)
-
-        # Results tabs
         tabs = QTabWidget()
         self.summary_table = CsvTable(editable=False)
         tabs.addTab(self.summary_table, "Analyte Summary")
         splitter.addWidget(tabs)
-
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
         layout.addWidget(splitter, stretch=1)
 
-        # Run
+        # Bottom
         bot = QHBoxLayout()
         self.lbl_status = QLabel("")
         self.lbl_status.setStyleSheet(f"color: {TEXT_DIM};")
@@ -95,37 +77,30 @@ class CcsAnalytePanel(QWidget):
         self.btn_run.clicked.connect(self._run)
         bot.addWidget(self.btn_run)
         layout.addLayout(bot)
-
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
-    def _on_ana_csv_changed(self, path: str):
+    def _on_csv_changed(self, path):
         if path and Path(path).exists():
             try:
-                df = pd.read_csv(path)
-                self.table.load_dataframe(df, Path(path))
-                self._log.log(f"Loaded {len(df)} analyte rows from {Path(path).name}")
+                self.table.load_dataframe(pd.read_csv(path), Path(path))
+                self._log.log(f"Loaded analyte CSV: {Path(path).name}")
             except Exception as e:
-                self._log.log(f"Failed to load analyte CSV: {e}", "error")
+                self._log.log(f"Failed to load: {e}", "error")
 
     def _run(self):
-        cal_csv = self.pick_cal_csv.path()
-        ana_csv = self.pick_ana_csv.path()
-        data = self.pick_data.path()
-        out = self.pick_out.path()
-
-        if not cal_csv or not ana_csv or not data or not out:
-            self._log.log("Set all fields: calibrant CSV, analyte CSV, data dir, output.", "warning")
+        cal, ana = self.pick_cal.path(), self.pick_ana.path()
+        data, out = self.pick_data.path(), self.pick_out.path()
+        if not all([cal, ana, data, out]):
+            self._log.log("Set all fields: calibrant CSV, analyte CSV, converted dir, output.", "warning")
             return
-
         method = self.combo_method.currentText()
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         self._log.log(f"Computing analyte CCS ({method})...", "accent")
-
-        self._worker = Worker(self._do_run, cal_csv, ana_csv, data, out, method)
+        self._worker = Worker(self._do_run, cal, ana, data, out, method)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
@@ -137,30 +112,22 @@ class CcsAnalytePanel(QWidget):
         logger.addHandler(handler)
         try:
             from deconvovo.imms_ccs_calibrate import run as ccs_run
-            return ccs_run(
-                Path(out), Path(data_dir), Path(cal_csv),
-                analyte_csv=Path(ana_csv),
-                conversion_method=method,
-            )
+            return ccs_run(Path(out), Path(data_dir), Path(cal_csv),
+                           analyte_csv=Path(ana_csv), conversion_method=method)
         finally:
             logger.removeHandler(handler)
 
     def _on_done(self, cal):
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
-
-        out = Path(self.pick_out.path())
-        summary_csv = out / "analyte_summary.csv"
-        if summary_csv.exists():
-            df = pd.read_csv(summary_csv)
-            self.summary_table.load_dataframe(df, summary_csv)
-            n = len(df)
-            above = df["above_threshold"].sum() if "above_threshold" in df.columns else n
-            self.lbl_status.setText(f"{n} analytes, {above} above threshold")
+        csv = Path(self.pick_out.path()) / "analyte_summary.csv"
+        if csv.exists():
+            df = pd.read_csv(csv)
+            self.summary_table.load_dataframe(df, csv)
+            above = df["above_threshold"].sum() if "above_threshold" in df.columns else len(df)
+            self.lbl_status.setText(f"{len(df)} analytes, {above} above threshold")
             self.lbl_status.setStyleSheet(f"color: {SUCCESS}; font-weight: bold;")
-            self._log.log(f"Analyte CCS complete: {n} rows, {above} above threshold", "success")
-        else:
-            self._log.log("Analyte CCS complete (no summary file found).", "success")
+            self._log.log(f"Analyte CCS complete: {len(df)} rows", "success")
 
     def _on_error(self, msg):
         self.btn_run.setEnabled(True)

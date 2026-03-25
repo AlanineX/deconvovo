@@ -4,18 +4,14 @@ from __future__ import annotations
 import os
 import sys
 
-# Do NOT set global matplotlib backend here.
-# The main thread uses QtAgg (for embedded plot canvas).
-# Worker threads force Agg in gui/widgets/worker.py before running pipeline code.
-
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QListWidget, QStackedWidget, QSplitter, QLabel, QPushButton,
+    QListWidget, QStackedWidget, QSplitter, QLabel, QPushButton, QFrame,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
-from gui.theme import stylesheet, ACCENT, FONT_FAMILY
+from gui.theme import stylesheet, ACCENT, ACCENT_DIM, FONT_FAMILY
 from gui.widgets.log_panel import LogPanel
 from gui.panels.convert import ConvertPanel
 from gui.panels.html_viewer import HtmlViewerPanel
@@ -38,15 +34,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._dark = True
         self.setWindowTitle("DeconVoVo")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(960, 640)
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen().availableGeometry()
-        w = min(int(screen.width() * 0.85), 1400)
-        h = min(int(screen.height() * 0.85), 860)
+        w = min(int(screen.width() * 0.85), 1440)
+        h = min(int(screen.height() * 0.85), 900)
         self.resize(w, h)
-
-        # Translucent background — lets DWM blur show through rgba backgrounds
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -55,50 +48,61 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         # ---- Sidebar ----
-        sidebar_w = QWidget()
-        sidebar_l = QVBoxLayout(sidebar_w)
-        sidebar_l.setContentsMargins(0, 0, 0, 0)
-        sidebar_l.setSpacing(0)
+        sidebar = QWidget()
+        sidebar.setFixedWidth(220)
+        sb = QVBoxLayout(sidebar)
+        sb.setContentsMargins(0, 0, 0, 0)
+        sb.setSpacing(0)
 
-        # Title
-        title_w = QWidget()
-        title_l = QVBoxLayout(title_w)
-        title_l.setContentsMargins(16, 16, 16, 12)
+        # Brand
+        brand = QWidget()
+        bl = QVBoxLayout(brand)
+        bl.setContentsMargins(20, 24, 20, 16)
+        bl.setSpacing(2)
         lbl_title = QLabel("DeconVoVo")
-        lbl_title.setStyleSheet(f"color: {ACCENT}; font-size: 16pt; font-weight: bold; background: transparent;")
+        lbl_title.setStyleSheet(f"color: {ACCENT}; font-size: 18pt; font-weight: 700; background: transparent;")
         lbl_sub = QLabel("IM-MS Analysis Suite")
         lbl_sub.setProperty("subtitle", True)
-        title_l.addWidget(lbl_title)
-        title_l.addWidget(lbl_sub)
-        sidebar_l.addWidget(title_w)
+        lbl_sub.setStyleSheet("padding-bottom: 0;")
+        bl.addWidget(lbl_title)
+        bl.addWidget(lbl_sub)
+        sb.addWidget(brand)
 
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"color: {ACCENT_DIM}; margin: 0 16px;")
+        sb.addWidget(sep)
+
+        # Navigation
         self.nav = QListWidget()
-        self.nav.setFixedWidth(200)
-        for name, desc, _ in PANELS:
+        self.nav.setObjectName("nav")
+        for name, _, _ in PANELS:
             self.nav.addItem(name)
         self.nav.setCurrentRow(0)
         self.nav.currentRowChanged.connect(self._switch_panel)
-        sidebar_l.addWidget(self.nav, stretch=1)
+        sb.addWidget(self.nav, stretch=1)
 
-        # Bottom: theme toggle + version
-        bot_w = QWidget()
-        bot_l = QHBoxLayout(bot_w)
-        bot_l.setContentsMargins(8, 4, 8, 8)
+        # Bottom: theme + version
+        bot = QWidget()
+        bot_l = QHBoxLayout(bot)
+        bot_l.setContentsMargins(16, 8, 16, 12)
         self.btn_theme = QPushButton("Light Mode")
         self.btn_theme.setProperty("secondary", True)
-        self.btn_theme.setFixedHeight(26)
+        self.btn_theme.setFixedHeight(28)
         self.btn_theme.clicked.connect(self._toggle_theme)
         bot_l.addWidget(self.btn_theme)
         bot_l.addStretch()
         from gui import __version__
         ver = QLabel(f"v{__version__}")
         ver.setProperty("subtitle", True)
+        ver.setStyleSheet("padding-bottom: 0;")
         bot_l.addWidget(ver)
-        sidebar_l.addWidget(bot_w)
+        sb.addWidget(bot)
 
-        root.addWidget(sidebar_w)
+        root.addWidget(sidebar)
 
-        # ---- Right side: panels + log ----
+        # ---- Content ----
         right = QSplitter(Qt.Vertical)
 
         self.stack = QStackedWidget()
@@ -112,50 +116,11 @@ class MainWindow(QMainWindow):
 
         right.addWidget(self.stack)
         right.addWidget(self.log_panel)
-        right.setStretchFactor(0, 4)
+        right.setStretchFactor(0, 5)
         right.setStretchFactor(1, 1)
+        right.setHandleWidth(1)
 
         root.addWidget(right, stretch=1)
-
-        # Apply Windows transparency after window is shown
-        if sys.platform == "win32":
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._apply_glass)
-
-    def _apply_glass(self):
-        """Apply Aero Glass blur (Win7+) or Acrylic (Win11). No-op if unsupported."""
-        if sys.platform != "win32":
-            return
-        try:
-            import ctypes
-            import ctypes.wintypes as wt
-            hwnd = int(self.winId())
-            dwm = ctypes.windll.dwmapi
-
-            # Method 1: DwmEnableBlurBehindWindow (Win7/8/10/11)
-            class DWM_BLURBEHIND(ctypes.Structure):
-                _fields_ = [("dwFlags", wt.DWORD), ("fEnable", wt.BOOL),
-                             ("hRgnBlur", wt.HANDLE), ("fTransitionOnMaximized", wt.BOOL)]
-            bb = DWM_BLURBEHIND()
-            bb.dwFlags = 0x01 | 0x02  # DWM_BB_ENABLE | DWM_BB_BLURREGION
-            bb.fEnable = True
-            bb.hRgnBlur = None  # blur entire window
-            dwm.DwmEnableBlurBehindWindow(hwnd, ctypes.byref(bb))
-
-            # Extend frame into client area for glass effect
-            class MARGINS(ctypes.Structure):
-                _fields_ = [("l", ctypes.c_int), ("r", ctypes.c_int),
-                             ("t", ctypes.c_int), ("b", ctypes.c_int)]
-            m = MARGINS(-1, -1, -1, -1)
-            dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(m))
-
-            # Method 2: Win11 Acrylic (bonus, fails silently on older Windows)
-            val = ctypes.c_int(1 if self._dark else 0)
-            dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(val), 4)  # dark mode
-            backdrop = ctypes.c_int(3)  # Acrylic
-            dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), 4)
-        except Exception:
-            pass
 
     def _switch_panel(self, idx: int):
         if 0 <= idx < self.stack.count():
@@ -167,15 +132,13 @@ class MainWindow(QMainWindow):
         self._dark = not self._dark
         QApplication.instance().setStyleSheet(stylesheet(dark=self._dark))
         self.btn_theme.setText("Dark Mode" if not self._dark else "Light Mode")
-        if sys.platform == "win32":
-            self._apply_win11_backdrop()
 
     def get_panel(self, idx: int):
         return self._panels[idx]
 
 
 def main():
-    # Signal pipeline code to avoid multiprocessing (prevents extra windows)
+    # Signal pipeline code to avoid multiprocessing
     from gui.widgets.worker import set_gui_mode
     set_gui_mode()
 

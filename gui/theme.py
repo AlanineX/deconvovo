@@ -1,77 +1,87 @@
-"""Theme for DeconVoVo GUI — dark and light modes."""
+"""Theme for DeconVoVo GUI — modern dark/light with depth layering.
+
+Design principles from PyDracula, QFluentWidgets, qt-material:
+- Solid backgrounds with 4-layer depth hierarchy (no OS transparency)
+- 8px grid spacing system
+- Single accent color used sparingly
+- Card-based grouping with rounded corners
+- Typography hierarchy: title > section > body > caption
+"""
 from __future__ import annotations
 
 import atexit
 import os
 import tempfile
 
-# -- Shared accent colors --
-ACCENT = "#5b8af5"
-ACCENT_HOVER = "#7aa4ff"
-ACCENT_PRESSED = "#4070d8"
-SUCCESS = "#2ea870"
-WARNING = "#c89a20"
-ERROR = "#d04840"
+# -- Accent + status colors (same in dark and light) --
+ACCENT = "#4a9eff"
+ACCENT_HOVER = "#6ab4ff"
+ACCENT_PRESSED = "#3580d8"
+ACCENT_DIM = "rgba(74,158,255,40)"
+SUCCESS = "#3ddc84"
+WARNING = "#ffb74d"
+ERROR = "#ef5350"
 
 # -- Fonts --
 FONT_FAMILY = "Segoe UI"
 FONT_SIZE = 10
 FONT_SIZE_SMALL = 9
-FONT_SIZE_TITLE = 13
-FONT_SIZE_HEADER = 11
+FONT_SIZE_TITLE = 14
+FONT_SIZE_SECTION = 11
+FONT_SIZE_CAPTION = 8
 
-# -- Palettes (Qt uses rgba for translucency, mpl needs hex) --
+# -- 4-layer dark palette --
 _DARK = dict(
-    bg="rgba(30,30,46,230)", bg_mid="rgba(37,37,56,240)", bg_mid_hex="#252538",
-    bg_input="#2e2e44", bg_head="#363654", border="#3e3e5e",
-    text="#d4d4e8", text_dim="#8888aa", text_hi="#f0f0ff",
-    plot_bg="#1a1a2e", plot_face="#22223a", grid="#3a3a5a", log_bg="#1a1a2e",
+    L0="#16161e",        # window background (deepest)
+    L1="#1e1e2e",        # sidebar, cards
+    L2="#272740",        # input fields, nested surfaces
+    L3="#323252",        # headers, hover states
+    border="#3a3a5a",    # subtle border
+    border_hi="#4a4a6a", # focused border
+    text="#e0e0f0",      # primary text
+    text_dim="#7a7a9a",  # secondary text
+    text_hi="#ffffff",   # emphasis
+    plot_bg="#16161e", plot_face="#1e1e2e", plot_hex="#1e1e2e",
+    grid="#2e2e4e", log_bg="#12121a",
 )
 _LIGHT = dict(
-    bg="rgba(244,244,248,230)", bg_mid="rgba(255,255,255,240)", bg_mid_hex="#ffffff",
-    bg_input="#e8e8f0", bg_head="#dcdce8", border="#c0c0d0",
-    text="#2a2a3a", text_dim="#6a6a80", text_hi="#1a1a2a",
-    plot_bg="#f8f8fc", plot_face="#ffffff", grid="#d0d0e0", log_bg="#f0f0f6",
+    L0="#f0f0f5",
+    L1="#ffffff",
+    L2="#e8e8f0",
+    L3="#d8d8e4",
+    border="#c4c4d4",
+    border_hi="#a0a0b8",
+    text="#1a1a2e",
+    text_dim="#6a6a80",
+    text_hi="#000000",
+    plot_bg="#f8f8fc", plot_face="#ffffff", plot_hex="#ffffff",
+    grid="#d0d0e0", log_bg="#f4f4f8",
 )
 
-# Stable module-level refs for panels that import color constants
 TEXT_DIM = _DARK["text_dim"]
 TEXT = _DARK["text"]
 
-# -- Checkbox checkmark image (generated once via QPainter → temp PNG) --
+# -- Checkmark PNG (generated once via QPainter) --
 _checkmark_path: str | None = None
 
-
 def _ensure_checkmark_png() -> str:
-    """Create a 16x16 white checkmark PNG in a temp file.
-
-    Uses QPainter so the result is a real file path that Qt stylesheets
-    can reference cross-platform (inline SVG data URIs are broken on
-    Windows).  The file is cleaned up at interpreter exit.
-    """
     global _checkmark_path
     if _checkmark_path and os.path.isfile(_checkmark_path):
         return _checkmark_path
-
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-
-    size = 16
-    pm = QPixmap(size, size)
-    pm.fill(QColor(0, 0, 0, 0))  # transparent
-
-    painter = QPainter(pm)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pm = QPixmap(16, 16)
+    pm.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = QPen(QColor(255, 255, 255), 2.5)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    painter.setPen(pen)
-    # Checkmark path: short leg (3,8)->(6,11), long leg (6,11)->(13,4)
-    painter.drawLine(3, 8, 6, 11)
-    painter.drawLine(6, 11, 13, 4)
-    painter.end()
-
-    fd, path = tempfile.mkstemp(suffix=".png", prefix="deconvovo_check_")
+    p.setPen(pen)
+    p.drawLine(3, 8, 6, 11)
+    p.drawLine(6, 11, 13, 4)
+    p.end()
+    fd, path = tempfile.mkstemp(suffix=".png", prefix="dvv_chk_")
     os.close(fd)
     pm.save(path, "PNG")
     _checkmark_path = path
@@ -86,106 +96,263 @@ def mpl_rc(dark=True):
         "axes.edgecolor": p["border"], "axes.labelcolor": p["text"],
         "axes.titlecolor": p["text_hi"], "xtick.color": p["text_dim"],
         "ytick.color": p["text_dim"], "text.color": p["text"],
-        "grid.color": p["grid"], "grid.alpha": 0.4,
+        "grid.color": p["grid"], "grid.alpha": 0.3,
         "font.family": "sans-serif",
         "font.sans-serif": ["Segoe UI", "Liberation Sans", "Arial"],
-        "font.size": 10, "legend.facecolor": p["bg_mid_hex"],
+        "font.size": 10, "legend.facecolor": p["plot_hex"],
         "legend.edgecolor": p["border"], "figure.dpi": 100,
     }
 
 
 def stylesheet(dark=True):
     p = _DARK if dark else _LIGHT
-    A, AH, AP = ACCENT, ACCENT_HOVER, ACCENT_PRESSED
-    FS, FSS, FST, FSH = FONT_SIZE, FONT_SIZE_SMALL, FONT_SIZE_TITLE, FONT_SIZE_HEADER
-    FF = FONT_FAMILY
-    # Forward slashes work in Qt stylesheet url() on all platforms
+    A, AH, AP, AD = ACCENT, ACCENT_HOVER, ACCENT_PRESSED, ACCENT_DIM
     chk = _ensure_checkmark_png().replace("\\", "/")
     return f"""
-    QWidget {{ background-color:{p['bg']}; color:{p['text']};
-        font-family:"{FF}","Liberation Sans","Arial",sans-serif; font-size:{FS}pt; }}
-    QMainWindow {{ background-color:{p['bg']}; }}
 
-    QListWidget {{ background-color:{p['bg_mid']}; border:none;
-        border-right:1px solid {p['border']}; outline:none; padding:4px 0; font-size:{FSH}pt; }}
-    QListWidget::item {{ padding:12px 16px; border:none; color:{p['text_dim']}; }}
-    QListWidget::item:selected {{ background-color:{A}; color:{p['text_hi']};
-        border-left:3px solid {AH}; }}
-    QListWidget::item:hover:!selected {{ background-color:{p['bg_head']}; color:{p['text']}; }}
+    /* ===== BASE ===== */
+    QWidget {{
+        background-color: {p['L0']};
+        color: {p['text']};
+        font-family: "{FONT_FAMILY}", "Liberation Sans", "Arial", sans-serif;
+        font-size: {FONT_SIZE}pt;
+        border: none;
+    }}
+    QMainWindow {{ background-color: {p['L0']}; }}
 
-    QPushButton {{ background-color:{A}; color:{p['text_hi']}; border:none;
-        border-radius:4px; padding:8px 20px; font-weight:bold; font-size:{FS}pt; min-height:18px; }}
-    QPushButton:hover {{ background-color:{AH}; }}
-    QPushButton:pressed {{ background-color:{AP}; }}
-    QPushButton:disabled {{ background-color:{p['bg_input']}; color:{p['text_dim']}; }}
-    QPushButton[secondary="true"] {{ background-color:{p['bg_input']}; color:{p['text']};
-        border:1px solid {p['border']}; }}
-    QPushButton[secondary="true"]:hover {{ background-color:{p['bg_head']}; }}
+    /* ===== SIDEBAR ===== */
+    QListWidget#nav {{
+        background-color: {p['L1']};
+        border: none;
+        border-right: 1px solid {p['border']};
+        outline: none;
+        padding: 4px 0;
+        font-size: {FONT_SIZE_SECTION}pt;
+    }}
+    QListWidget#nav::item {{
+        padding: 14px 20px;
+        border: none;
+        border-left: 3px solid transparent;
+        color: {p['text_dim']};
+        margin: 2px 4px;
+        border-radius: 6px;
+    }}
+    QListWidget#nav::item:selected {{
+        background-color: {AD};
+        color: {p['text_hi']};
+        border-left: 3px solid {A};
+    }}
+    QListWidget#nav::item:hover:!selected {{
+        background-color: {p['L2']};
+        color: {p['text']};
+    }}
 
-    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{ background-color:{p['bg_input']};
-        color:{p['text']}; border:1px solid {p['border']}; border-radius:3px;
-        padding:5px 8px; font-size:{FS}pt; }}
+    /* ===== BUTTONS ===== */
+    QPushButton {{
+        background-color: {A};
+        color: {p['text_hi']};
+        border: none;
+        border-radius: 6px;
+        padding: 8px 24px;
+        font-weight: 600;
+        font-size: {FONT_SIZE}pt;
+        min-height: 20px;
+    }}
+    QPushButton:hover {{ background-color: {AH}; }}
+    QPushButton:pressed {{ background-color: {AP}; }}
+    QPushButton:disabled {{ background-color: {p['L2']}; color: {p['text_dim']}; }}
+    QPushButton[secondary="true"] {{
+        background-color: {p['L2']};
+        color: {p['text']};
+        border: 1px solid {p['border']};
+        font-weight: normal;
+    }}
+    QPushButton[secondary="true"]:hover {{
+        background-color: {p['L3']};
+        border-color: {p['border_hi']};
+    }}
+
+    /* ===== INPUTS ===== */
+    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
+        background-color: {p['L2']};
+        color: {p['text']};
+        border: 1px solid {p['border']};
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: {FONT_SIZE}pt;
+        selection-background-color: {AD};
+    }}
     QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
-        border:1px solid {A}; }}
-    QComboBox::drop-down {{ border:none; padding-right:8px; }}
-    QComboBox QAbstractItemView {{ background-color:{p['bg_input']}; color:{p['text']};
-        selection-background-color:{A}; border:1px solid {p['border']}; }}
+        border: 1px solid {A};
+    }}
+    QComboBox::drop-down {{ border: none; padding-right: 10px; }}
+    QComboBox QAbstractItemView {{
+        background-color: {p['L2']};
+        color: {p['text']};
+        selection-background-color: {A};
+        border: 1px solid {p['border']};
+        border-radius: 4px;
+    }}
 
-    QLabel {{ background-color:transparent; color:{p['text']}; }}
-    QLabel[title="true"] {{ font-size:{FST}pt; font-weight:bold; color:{p['text_hi']}; }}
-    QLabel[subtitle="true"] {{ font-size:{FSS}pt; color:{p['text_dim']}; }}
+    /* ===== LABELS ===== */
+    QLabel {{ background: transparent; color: {p['text']}; }}
+    QLabel[title="true"] {{
+        font-size: {FONT_SIZE_TITLE}pt;
+        font-weight: 700;
+        color: {p['text_hi']};
+        padding-bottom: 2px;
+    }}
+    QLabel[subtitle="true"] {{
+        font-size: {FONT_SIZE_SMALL}pt;
+        color: {p['text_dim']};
+        padding-bottom: 8px;
+    }}
 
-    QGroupBox {{ background-color:{p['bg_mid']}; border:1px solid {p['border']};
-        border-radius:5px; margin-top:12px; padding-top:18px;
-        font-weight:bold; color:{p['text_hi']}; }}
-    QGroupBox::title {{ subcontrol-origin:margin; left:12px; padding:0 6px; }}
+    /* ===== CARDS (GroupBox) ===== */
+    QGroupBox {{
+        background-color: {p['L1']};
+        border: 1px solid {p['border']};
+        border-radius: 8px;
+        margin-top: 16px;
+        padding: 20px 16px 12px 16px;
+        font-weight: 600;
+        font-size: {FONT_SIZE_SMALL}pt;
+        color: {p['text_dim']};
+    }}
+    QGroupBox::title {{
+        subcontrol-origin: margin;
+        left: 16px;
+        padding: 0 8px;
+        color: {p['text_dim']};
+    }}
 
-    QTableWidget {{ background-color:{p['bg_mid']}; alternate-background-color:{p['bg_input']};
-        gridline-color:{p['border']}; border:1px solid {p['border']};
-        border-radius:3px; font-size:{FSS}pt; }}
-    QTableWidget::item {{ padding:3px 6px; }}
-    QTableWidget::item:selected {{ background-color:{A}; color:{p['text_hi']}; }}
-    QHeaderView::section {{ background-color:{p['bg_head']}; color:{p['text_hi']};
-        border:none; border-right:1px solid {p['border']};
-        border-bottom:1px solid {p['border']}; padding:5px 8px;
-        font-weight:bold; font-size:{FSS}pt; }}
+    /* ===== TABLE ===== */
+    QTableWidget {{
+        background-color: {p['L1']};
+        alternate-background-color: {p['L2']};
+        gridline-color: {p['border']};
+        border: 1px solid {p['border']};
+        border-radius: 6px;
+        font-size: {FONT_SIZE_SMALL}pt;
+    }}
+    QTableWidget::item {{ padding: 4px 8px; }}
+    QTableWidget::item:selected {{ background-color: {A}; color: {p['text_hi']}; }}
+    QHeaderView::section {{
+        background-color: {p['L3']};
+        color: {p['text_hi']};
+        border: none;
+        border-right: 1px solid {p['border']};
+        border-bottom: 1px solid {p['border']};
+        padding: 6px 10px;
+        font-weight: 600;
+        font-size: {FONT_SIZE_SMALL}pt;
+    }}
 
-    QScrollBar:vertical {{ background-color:{p['bg']}; width:10px; border:none; }}
-    QScrollBar::handle:vertical {{ background-color:{p['border']}; border-radius:5px; min-height:30px; }}
-    QScrollBar::handle:vertical:hover {{ background-color:{p['text_dim']}; }}
-    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
-    QScrollBar:horizontal {{ background-color:{p['bg']}; height:10px; border:none; }}
-    QScrollBar::handle:horizontal {{ background-color:{p['border']}; border-radius:5px; min-width:30px; }}
+    /* ===== SCROLLBAR ===== */
+    QScrollBar:vertical {{
+        background: transparent;
+        width: 8px;
+        border: none;
+        margin: 4px 2px;
+    }}
+    QScrollBar::handle:vertical {{
+        background-color: {p['border']};
+        border-radius: 4px;
+        min-height: 32px;
+    }}
+    QScrollBar::handle:vertical:hover {{ background-color: {p['text_dim']}; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    QScrollBar:horizontal {{
+        background: transparent;
+        height: 8px;
+        border: none;
+        margin: 2px 4px;
+    }}
+    QScrollBar::handle:horizontal {{
+        background-color: {p['border']};
+        border-radius: 4px;
+        min-width: 32px;
+    }}
 
-    QProgressBar {{ background-color:{p['bg_input']}; border:1px solid {p['border']};
-        border-radius:4px; text-align:center; color:{p['text_hi']};
-        font-size:{FSS}pt; min-height:20px; }}
-    QProgressBar::chunk {{ background-color:{A}; border-radius:3px; }}
+    /* ===== PROGRESS BAR ===== */
+    QProgressBar {{
+        background-color: {p['L2']};
+        border: none;
+        border-radius: 4px;
+        text-align: center;
+        color: {p['text_hi']};
+        font-size: {FONT_SIZE_SMALL}pt;
+        min-height: 6px;
+        max-height: 6px;
+    }}
+    QProgressBar::chunk {{
+        background-color: {A};
+        border-radius: 3px;
+    }}
 
-    QTabWidget::pane {{ border:1px solid {p['border']}; background-color:{p['bg_mid']};
-        border-radius:3px; }}
-    QTabBar::tab {{ background-color:{p['bg_input']}; color:{p['text_dim']};
-        border:1px solid {p['border']}; border-bottom:none; padding:7px 16px;
-        margin-right:2px; border-top-left-radius:4px; border-top-right-radius:4px; }}
-    QTabBar::tab:selected {{ background-color:{p['bg_mid']}; color:{p['text_hi']};
-        border-bottom:2px solid {A}; }}
-    QTabBar::tab:hover:!selected {{ background-color:{p['bg_head']}; color:{p['text']}; }}
+    /* ===== TABS ===== */
+    QTabWidget::pane {{
+        border: 1px solid {p['border']};
+        background-color: {p['L1']};
+        border-radius: 6px;
+        top: -1px;
+    }}
+    QTabBar::tab {{
+        background-color: transparent;
+        color: {p['text_dim']};
+        border: none;
+        border-bottom: 2px solid transparent;
+        padding: 8px 20px;
+        margin-right: 4px;
+        font-size: {FONT_SIZE_SMALL}pt;
+    }}
+    QTabBar::tab:selected {{
+        color: {p['text_hi']};
+        border-bottom: 2px solid {A};
+    }}
+    QTabBar::tab:hover:!selected {{
+        color: {p['text']};
+        border-bottom: 2px solid {p['border']};
+    }}
 
-    QSplitter::handle {{ background-color:{p['border']}; }}
-    QSplitter::handle:horizontal {{ width:1px; }}
-    QSplitter::handle:vertical {{ height:1px; }}
+    /* ===== SPLITTER ===== */
+    QSplitter::handle {{ background: transparent; }}
+    QSplitter::handle:horizontal {{ width: 6px; }}
+    QSplitter::handle:vertical {{ height: 6px; }}
 
-    QTextEdit[readOnly="true"] {{ background-color:{p['log_bg']}; color:{p['text_dim']};
-        border:1px solid {p['border']}; border-radius:3px;
-        font-family:"Consolas","Liberation Mono",monospace; font-size:{FSS}pt; }}
+    /* ===== LOG PANEL ===== */
+    QTextEdit[readOnly="true"] {{
+        background-color: {p['log_bg']};
+        color: {p['text_dim']};
+        border: 1px solid {p['border']};
+        border-radius: 6px;
+        font-family: "Cascadia Code", "Consolas", "Liberation Mono", monospace;
+        font-size: {FONT_SIZE_SMALL}pt;
+        padding: 8px;
+    }}
 
-    QToolTip {{ background-color:{p['bg_head']}; color:{p['text']};
-        border:1px solid {p['border']}; padding:4px; }}
+    /* ===== TOOLTIP ===== */
+    QToolTip {{
+        background-color: {p['L3']};
+        color: {p['text']};
+        border: 1px solid {p['border']};
+        border-radius: 4px;
+        padding: 6px 10px;
+        font-size: {FONT_SIZE_SMALL}pt;
+    }}
 
-    QCheckBox {{ background-color:transparent; spacing:6px; }}
-    QCheckBox::indicator {{ width:18px; height:18px; border:2px solid {p['border']};
-        border-radius:4px; background-color:{p['bg_input']}; }}
-    QCheckBox::indicator:hover {{ border-color:{A}; }}
-    QCheckBox::indicator:checked {{ border-color:{A}; background-color:{A};
-        image:url("{chk}"); }}
+    /* ===== CHECKBOX ===== */
+    QCheckBox {{ background: transparent; spacing: 8px; }}
+    QCheckBox::indicator {{
+        width: 18px; height: 18px;
+        border: 2px solid {p['border']};
+        border-radius: 4px;
+        background-color: {p['L2']};
+    }}
+    QCheckBox::indicator:hover {{ border-color: {A}; }}
+    QCheckBox::indicator:checked {{
+        border-color: {A};
+        background-color: {A};
+        image: url("{chk}");
+    }}
     """

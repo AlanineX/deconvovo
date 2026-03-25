@@ -1,9 +1,6 @@
 """Embedded matplotlib canvas for Qt panels."""
 from __future__ import annotations
 
-import matplotlib
-matplotlib.use("QtAgg")
-
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 

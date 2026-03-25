@@ -69,6 +69,7 @@ def run(data_dir: Path, out_dir: Path, skip_existing: bool = False,
     results = parallel_map(_plot_one_run, run_args, n_workers=n_workers)
     for r in results:
         print(f"    {r['run_name']} {' — '.join(r.get('status', []))}")
+    return results
 
 
 def main() -> None:

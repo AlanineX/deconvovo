@@ -46,6 +46,16 @@ DEMO = ROOT / "demo_data"
 if DEMO.exists():
     datas.append((str(DEMO), "demo_data"))
 
+# Bundle plotly package data (templates, plotly.js)
+try:
+    import plotly
+    plotly_dir = Path(plotly.__file__).parent
+    plotly_data = plotly_dir / "package_data"
+    if plotly_data.exists():
+        datas.append((str(plotly_data), "plotly/package_data"))
+except ImportError:
+    print("WARNING: plotly not found — HTML viewer may not work")
+
 a = Analysis(
     [str(ROOT / "gui" / "app.py")],
     pathex=[str(ROOT)],
@@ -74,6 +84,14 @@ a = Analysis(
         "scipy.ndimage",
         "scipy.stats",
         "plotly",
+        "plotly.graph_objects",
+        "plotly.graph_objs",
+        "plotly.colors",
+        "plotly.subplots",
+        "plotly.io",
+        "plotly.offline",
+        "plotly.express",
+        "plotly.validators",
         "unidec",
         "unidec.engine",
     ],

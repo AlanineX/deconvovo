@@ -99,24 +99,29 @@ class HtmlViewerPanel(QWidget):
 
     def _do_plot(self, data, out, raw, skip, workers):
         data_p = Path(data)
-        ms_files = list(data_p.glob("*_ms.txt"))
         im_files = list(data_p.glob("*_im.txt"))
         self._log._sig.message.emit(
-            f"Found {len(ms_files)} MS files, {len(im_files)} IM files in {data_p.name}", "info")
+            f"Found {len(im_files)} IM files in {data_p.name}", "info")
         if not im_files:
             raise FileNotFoundError(f"No _im.txt files found in {data}")
         from deconvovo.imms_plot import run as plot_run
-        plot_run(
+        results = plot_run(
             data_p, Path(out),
             skip_existing=skip,
             raw_dir=Path(raw) if raw else None,
             n_workers=workers,
         )
+        # Surface per-run errors to the GUI log
+        if results:
+            for r in results:
+                status = " | ".join(r.get("status", []))
+                level = "error" if "ERROR" in status else "info"
+                self._log._sig.message.emit(f"  {r['run_name']}: {status}", level)
+        return results
 
-    def _on_done(self, _):
+    def _on_done(self, results):
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
-        # Count output files
         out = Path(self.pick_out.path())
         htmls = list(out.glob("*_2d_imms.html"))
         n_ok = sum(1 for h in htmls if h.stat().st_size > 0)

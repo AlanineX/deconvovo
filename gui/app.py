@@ -4,11 +4,9 @@ from __future__ import annotations
 import os
 import sys
 
-# Force non-interactive backend BEFORE any matplotlib import
-# This MUST be before any deconvovo import that touches matplotlib
-os.environ["MPLBACKEND"] = "Agg"
-import matplotlib
-matplotlib.use("Agg")
+# Do NOT set global matplotlib backend here.
+# The main thread uses QtAgg (for embedded plot canvas).
+# Worker threads force Agg in gui/widgets/worker.py before running pipeline code.
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
@@ -46,6 +44,9 @@ class MainWindow(QMainWindow):
         w = min(int(screen.width() * 0.85), 1400)
         h = min(int(screen.height() * 0.85), 860)
         self.resize(w, h)
+
+        # Translucent background — lets DWM blur show through rgba backgrounds
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         central = QWidget()
         self.setCentralWidget(central)

@@ -58,7 +58,7 @@ class CcsCalibrationPanel(QWidget):
         layout.addLayout(ctrl)
 
         row2 = QHBoxLayout()
-        self.pick_data = DirPicker("Data dir:", dialog_title="Select directory with converted _ms.txt/_im.txt files")
+        self.pick_data = DirPicker("Converted dir:", dialog_title="Select directory with converted _ms.txt/_im.txt files")
         row2.addWidget(self.pick_data, stretch=1)
         layout.addLayout(row2)
 

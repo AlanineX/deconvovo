@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import sys
 
+# Force non-interactive backend BEFORE any matplotlib import
+# Prevents extra windows spawning from worker threads on Windows
+import matplotlib
+matplotlib.use("Agg")
+
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QListWidget, QStackedWidget, QSplitter, QLabel, QPushButton,

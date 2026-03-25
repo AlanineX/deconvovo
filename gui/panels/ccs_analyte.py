@@ -50,7 +50,7 @@ class CcsAnalytePanel(QWidget):
         ctrl.addLayout(row2)
 
         row_data = QHBoxLayout()
-        self.pick_data = DirPicker("Data dir:", dialog_title="Select directory with _ms.txt/_im.txt")
+        self.pick_data = DirPicker("Converted dir:", dialog_title="Select directory with _ms.txt/_im.txt")
         row_data.addWidget(self.pick_data, stretch=1)
         ctrl.addLayout(row_data)
 

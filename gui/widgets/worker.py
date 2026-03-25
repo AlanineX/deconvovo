@@ -23,6 +23,10 @@ class Worker(QThread):
 
     def run(self):
         try:
+            # Force non-interactive matplotlib backend in worker threads
+            # to prevent extra windows spawning on Windows
+            import matplotlib
+            matplotlib.use("Agg")
             result = self._fn(*self._args, **self._kwargs)
             self.finished.emit(result)
         except Exception as e:

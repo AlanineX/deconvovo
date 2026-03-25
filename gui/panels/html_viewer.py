@@ -34,8 +34,8 @@ class HtmlViewerPanel(QWidget):
 
         grp = QGroupBox("Paths")
         gl = QVBoxLayout(grp)
-        self.pick_data = DirPicker("Text data:", dialog_title="Select directory with _ms.txt / _im.txt")
-        self.pick_raw = DirPicker("Raw data:", dialog_title="Select directory with .raw folders (for pusher period)")
+        self.pick_data = DirPicker("Converted dir:", dialog_title="Select directory with _ms.txt / _im.txt")
+        self.pick_raw = DirPicker("Raw .raw dir:", dialog_title="Select directory with .raw folders (for pusher period)")
         self.pick_out = DirPicker("Output:", dialog_title="Select output directory for HTML files")
         gl.addWidget(self.pick_data)
         gl.addWidget(self.pick_raw)

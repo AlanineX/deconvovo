@@ -5,9 +5,8 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QPushButton, QProgressBar, QCheckBox,
+    QPushButton, QProgressBar, QCheckBox, QSpinBox,
 )
-from PySide6.QtCore import Qt
 
 from gui.widgets.file_picker import DirPicker
 from gui.widgets.log_panel import LogPanel
@@ -46,6 +45,11 @@ class ConvertPanel(QWidget):
         self.chk_skip.setChecked(True)
         ol.addWidget(self.chk_skip)
         ol.addStretch()
+        ol.addWidget(QLabel("Workers:"))
+        self.spin_workers = QSpinBox()
+        self.spin_workers.setRange(1, 16)
+        self.spin_workers.setValue(4)
+        ol.addWidget(self.spin_workers)
         layout.addWidget(grp2)
 
         run_row = QHBoxLayout()
@@ -70,19 +74,20 @@ class ConvertPanel(QWidget):
             self._log.log("Set input and output directories first.", "warning")
             return
 
+        workers = self.spin_workers.value()
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
-        self._log.log(f"Converting {inp} → {out}", "accent")
+        self._log.log(f"Converting {inp} → {out} (workers={workers})", "accent")
 
-        self._worker = Worker(self._do_convert, inp, out)
+        self._worker = Worker(self._do_convert, inp, out, workers)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _do_convert(self, inp: str, out: str):
+    def _do_convert(self, inp: str, out: str, workers: int):
         from deconvovo.imms_convert import run as convert_run
-        return convert_run(Path(inp), Path(out))
+        return convert_run(Path(inp), Path(out), n_workers=workers)
 
     def _on_done(self, result):
         self.btn_run.setEnabled(True)

@@ -257,8 +257,8 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
             d = {k: v for k, v in p.items() if k != "label"}
             val = _json.dumps(d)
             label = p.get("label", str(d))
-            # Use HTML entity for sigma
-            label = label.replace("σ", "&sigma;")
+            # Replace ALL non-ASCII chars with HTML entities
+            label = "".join(f"&#{ord(c)};" if ord(c) > 127 else c for c in label)
             sel = " selected" if d == default else ""
             opts.append(f"<option value='{val}'{sel}>{label}</option>")
         return "\n      ".join(opts)

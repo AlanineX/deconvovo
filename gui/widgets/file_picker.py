@@ -22,10 +22,9 @@ class _BasePicker(QWidget):
         self.line.setPlaceholderText(placeholder)
         self.line.textChanged.connect(self.path_changed.emit)
         layout.addWidget(self.line, stretch=1)
-        btn = QPushButton("Browse")
+        btn = QPushButton("  Browse  ")
         btn.setProperty("secondary", True)
         btn.setFixedHeight(28)
-        btn.setFixedWidth(70)
         btn.clicked.connect(self._browse)
         layout.addWidget(btn)
 

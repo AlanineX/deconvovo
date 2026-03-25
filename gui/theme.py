@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import sys
 import tempfile
 
 # -- Accent + status colors (same in dark and light) --
@@ -32,28 +33,16 @@ FONT_SIZE_CAPTION = 8
 
 # -- 4-layer dark palette --
 _DARK = dict(
-    L0="#16161e",        # window background (deepest)
-    L1="#1e1e2e",        # sidebar, cards
-    L2="#272740",        # input fields, nested surfaces
-    L3="#323252",        # headers, hover states
-    border="#3a3a5a",    # subtle border
-    border_hi="#4a4a6a", # focused border
-    text="#e0e0f0",      # primary text
-    text_dim="#7a7a9a",  # secondary text
-    text_hi="#ffffff",   # emphasis
+    L0="#16161e", L1="#1e1e2e", L2="#272740", L3="#323252",
+    border="#3a3a5a", border_hi="#4a4a6a",
+    text="#e0e0f0", text_dim="#7a7a9a", text_hi="#ffffff",
     plot_bg="#16161e", plot_face="#1e1e2e", plot_hex="#1e1e2e",
     grid="#2e2e4e", log_bg="#12121a",
 )
 _LIGHT = dict(
-    L0="#f0f0f5",
-    L1="#ffffff",
-    L2="#e8e8f0",
-    L3="#d8d8e4",
-    border="#c4c4d4",
-    border_hi="#a0a0b8",
-    text="#1a1a2e",
-    text_dim="#6a6a80",
-    text_hi="#000000",
+    L0="#f0f0f5", L1="#ffffff", L2="#e8e8f0", L3="#d8d8e4",
+    border="#c4c4d4", border_hi="#a0a0b8",
+    text="#1a1a2e", text_dim="#6a6a80", text_hi="#000000",
     plot_bg="#f8f8fc", plot_face="#ffffff", plot_hex="#ffffff",
     grid="#d0d0e0", log_bg="#f4f4f8",
 )
@@ -61,31 +50,38 @@ _LIGHT = dict(
 TEXT_DIM = _DARK["text_dim"]
 TEXT = _DARK["text"]
 
-# -- Checkmark PNG (generated once via QPainter) --
+# -- Checkmark PNG --
 _checkmark_path: str | None = None
 
 def _ensure_checkmark_png() -> str:
+    """Create a 16x16 white checkmark PNG. Cached for session lifetime."""
     global _checkmark_path
     if _checkmark_path and os.path.isfile(_checkmark_path):
         return _checkmark_path
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+
     pm = QPixmap(16, 16)
     pm.fill(QColor(0, 0, 0, 0))
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     pen = QPen(QColor(255, 255, 255), 2.5)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    p.setPen(pen)
-    p.drawLine(3, 8, 6, 11)
-    p.drawLine(6, 11, 13, 4)
-    p.end()
-    fd, path = tempfile.mkstemp(suffix=".png", prefix="dvv_chk_")
-    os.close(fd)
+    painter.setPen(pen)
+    painter.drawLine(3, 8, 6, 11)
+    painter.drawLine(6, 11, 13, 4)
+    painter.end()
+
+    # Write next to the exe (frozen) or in temp (dev)
+    if getattr(sys, 'frozen', False):
+        d = os.path.dirname(sys.executable)
+    else:
+        d = tempfile.gettempdir()
+    path = os.path.join(d, "dvv_checkmark.png")
     pm.save(path, "PNG")
     _checkmark_path = path
-    atexit.register(lambda: os.remove(path) if os.path.isfile(path) else None)
+    atexit.register(lambda p=path: os.remove(p) if os.path.isfile(p) else None)
     return path
 
 
@@ -316,9 +312,14 @@ def stylesheet(dark=True):
     }}
 
     /* ===== SPLITTER ===== */
-    QSplitter::handle {{ background: transparent; }}
-    QSplitter::handle:horizontal {{ width: 6px; }}
-    QSplitter::handle:vertical {{ height: 6px; }}
+    QSplitter::handle {{
+        background-color: {p['border']};
+    }}
+    QSplitter::handle:hover {{
+        background-color: {A};
+    }}
+    QSplitter::handle:horizontal {{ width: 3px; margin: 0 2px; }}
+    QSplitter::handle:vertical {{ height: 3px; margin: 2px 0; }}
 
     /* ===== LOG PANEL ===== */
     QTextEdit[readOnly="true"] {{

@@ -119,21 +119,38 @@ class MainWindow(QMainWindow):
         # Apply Windows transparency after window is shown
         if sys.platform == "win32":
             from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._apply_win11_backdrop)
+            QTimer.singleShot(0, self._apply_glass)
 
-    def _apply_win11_backdrop(self):
-        """Apply Windows 11 Mica/Acrylic backdrop. No-op if unsupported."""
+    def _apply_glass(self):
+        """Apply Aero Glass blur (Win7+) or Acrylic (Win11). No-op if unsupported."""
+        if sys.platform != "win32":
+            return
         try:
             import ctypes
+            import ctypes.wintypes as wt
             hwnd = int(self.winId())
             dwm = ctypes.windll.dwmapi
 
-            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-            val = ctypes.c_int(1 if self._dark else 0)
-            dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(val), 4)
+            # Method 1: DwmEnableBlurBehindWindow (Win7/8/10/11)
+            class DWM_BLURBEHIND(ctypes.Structure):
+                _fields_ = [("dwFlags", wt.DWORD), ("fEnable", wt.BOOL),
+                             ("hRgnBlur", wt.HANDLE), ("fTransitionOnMaximized", wt.BOOL)]
+            bb = DWM_BLURBEHIND()
+            bb.dwFlags = 0x01 | 0x02  # DWM_BB_ENABLE | DWM_BB_BLURREGION
+            bb.fEnable = True
+            bb.hRgnBlur = None  # blur entire window
+            dwm.DwmEnableBlurBehindWindow(hwnd, ctypes.byref(bb))
 
-            # DWMWA_SYSTEMBACKDROP_TYPE = 38 (Win11 22H2+)
-            # 2 = Mica, 3 = Acrylic, 4 = Mica Alt
+            # Extend frame into client area for glass effect
+            class MARGINS(ctypes.Structure):
+                _fields_ = [("l", ctypes.c_int), ("r", ctypes.c_int),
+                             ("t", ctypes.c_int), ("b", ctypes.c_int)]
+            m = MARGINS(-1, -1, -1, -1)
+            dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(m))
+
+            # Method 2: Win11 Acrylic (bonus, fails silently on older Windows)
+            val = ctypes.c_int(1 if self._dark else 0)
+            dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(val), 4)  # dark mode
             backdrop = ctypes.c_int(3)  # Acrylic
             dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), 4)
         except Exception:

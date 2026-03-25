@@ -98,9 +98,16 @@ class HtmlViewerPanel(QWidget):
         self._worker.start()
 
     def _do_plot(self, data, out, raw, skip, workers):
+        data_p = Path(data)
+        ms_files = list(data_p.glob("*_ms.txt"))
+        im_files = list(data_p.glob("*_im.txt"))
+        self._log._sig.message.emit(
+            f"Found {len(ms_files)} MS files, {len(im_files)} IM files in {data_p.name}", "info")
+        if not im_files:
+            raise FileNotFoundError(f"No _im.txt files found in {data}")
         from deconvovo.imms_plot import run as plot_run
         plot_run(
-            Path(data), Path(out),
+            data_p, Path(out),
             skip_existing=skip,
             raw_dir=Path(raw) if raw else None,
             n_workers=workers,
@@ -109,7 +116,15 @@ class HtmlViewerPanel(QWidget):
     def _on_done(self, _):
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
-        self._log.log("HTML generation complete.", "success")
+        # Count output files
+        out = Path(self.pick_out.path())
+        htmls = list(out.glob("*_2d_imms.html"))
+        n_ok = sum(1 for h in htmls if h.stat().st_size > 0)
+        n_empty = len(htmls) - n_ok
+        msg = f"Done: {n_ok} HTML files"
+        if n_empty:
+            msg += f" ({n_empty} empty — check log)"
+        self._log.log(msg, "success" if not n_empty else "warning")
 
     def _on_error(self, msg):
         self.btn_run.setEnabled(True)

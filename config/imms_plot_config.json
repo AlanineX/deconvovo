@@ -27,17 +27,17 @@
       {
         "method": "gaussian",
         "sigma": 0.3,
-        "label": "Gauss s=0.3"
+        "label": "Gauss σ=0.3"
       },
       {
         "method": "gaussian",
         "sigma": 0.6,
-        "label": "Gauss s=0.6"
+        "label": "Gauss σ=0.6"
       },
       {
         "method": "gaussian",
         "sigma": 1,
-        "label": "Gauss s=1"
+        "label": "Gauss σ=1"
       },
       {
         "method": "sg",
@@ -77,22 +77,22 @@
       {
         "method": "gaussian",
         "sigma": 0.3,
-        "label": "Gauss s=0.3"
+        "label": "Gauss σ=0.3"
       },
       {
         "method": "gaussian",
         "sigma": 0.6,
-        "label": "Gauss s=0.6"
+        "label": "Gauss σ=0.6"
       },
       {
         "method": "gaussian",
         "sigma": 1,
-        "label": "Gauss s=1"
+        "label": "Gauss σ=1"
       },
       {
         "method": "gaussian",
         "sigma": 2,
-        "label": "Gauss s=2"
+        "label": "Gauss σ=2"
       },
       {
         "method": "sg",

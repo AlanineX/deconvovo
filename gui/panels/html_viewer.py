@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QPushButton, QProgressBar, QCheckBox, QSpinBox, QComboBox,
-    QDoubleSpinBox, QFormLayout,
+    QDoubleSpinBox, QTextEdit, QTabWidget,
 )
 
 from gui.widgets.file_picker import DirPicker
@@ -25,7 +25,7 @@ def _config_path():
 def _load_config():
     p = _config_path()
     if p.exists():
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             return json.load(f)
     return {}
 
@@ -33,8 +33,8 @@ def _load_config():
 def _save_config(cfg):
     p = _config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "w") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 
 class HtmlViewerPanel(QWidget):
@@ -77,135 +77,155 @@ class HtmlViewerPanel(QWidget):
         gl_out.addWidget(self.pick_out)
         layout.addWidget(grp_out)
 
-        # Config options — full imms_plot_config.json editor
+        # Configuration — tabs for Defaults and Presets
         defaults = self._cfg.get("defaults", {})
         presets = self._cfg.get("presets", {})
         fig_cfg = self._cfg.get("figure", {})
 
-        opts = QGroupBox("Viewer Configuration")
-        ol = QVBoxLayout(opts)
+        cfg_grp = QGroupBox("Viewer Configuration")
+        cfg_layout = QVBoxLayout(cfg_grp)
 
-        # Row 1: processing
-        row1 = QHBoxLayout()
+        cfg_tabs = QTabWidget()
+
+        # ---- Tab 1: Defaults ----
+        defaults_w = QWidget()
+        dl = QVBoxLayout(defaults_w)
+        dl.setContentsMargins(8, 8, 8, 8)
+
+        dl_sub = QLabel("Initial settings when the HTML viewer opens. Users can still change them interactively.")
+        dl_sub.setProperty("subtitle", True)
+        dl_sub.setWordWrap(True)
+        dl.addWidget(dl_sub)
+
+        # Row: processing
+        r0 = QHBoxLayout()
         self.chk_skip = QCheckBox("Skip existing")
         self.chk_skip.setChecked(True)
-        row1.addWidget(self.chk_skip)
-        row1.addStretch()
-        row1.addWidget(QLabel("Workers:"))
+        r0.addWidget(self.chk_skip)
+        r0.addStretch()
+        r0.addWidget(QLabel("Workers:"))
         self.spin_workers = QSpinBox()
         self.spin_workers.setRange(1, 16)
         self.spin_workers.setValue(8)
-        row1.addWidget(self.spin_workers)
-        ol.addLayout(row1)
+        r0.addWidget(self.spin_workers)
+        dl.addLayout(r0)
 
-        # Row 2: m/z bins, drift bins, colormap
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("m/z bins:"))
+        # Row: binning + colormap + scale
+        r1 = QHBoxLayout()
+        r1.addWidget(QLabel("m/z bins:"))
         self.spin_mzbins = QSpinBox()
         self.spin_mzbins.setRange(100, 25600)
         self.spin_mzbins.setSingleStep(200)
         self.spin_mzbins.setValue(defaults.get("mz_bins", 3200))
-        row2.addWidget(self.spin_mzbins)
-
-        row2.addWidget(QLabel("Colormap:"))
+        r1.addWidget(self.spin_mzbins)
+        r1.addWidget(QLabel("Colormap:"))
         self.combo_cmap = QComboBox()
         cmap_names = []
         for c in presets.get("colormap", ["Viridis"]):
-            name = c if isinstance(c, str) else c.get("name", "?")
-            cmap_names.append(name)
+            cmap_names.append(c if isinstance(c, str) else c.get("name", "?"))
         self.combo_cmap.addItems(cmap_names)
-        default_cmap = defaults.get("colormap", "Viridis")
-        if default_cmap in cmap_names:
-            self.combo_cmap.setCurrentText(default_cmap)
-        row2.addWidget(self.combo_cmap)
-
-        row2.addWidget(QLabel("Scale:"))
+        self.combo_cmap.setCurrentText(defaults.get("colormap", "Viridis"))
+        r1.addWidget(self.combo_cmap)
+        r1.addWidget(QLabel("Scale:"))
         self.combo_scale = QComboBox()
         self.combo_scale.addItems([str(s) for s in presets.get("scale", ["1"])])
         self.combo_scale.setCurrentText(str(defaults.get("scale", "1")))
-        row2.addWidget(self.combo_scale)
-        row2.addStretch()
-        ol.addLayout(row2)
+        r1.addWidget(self.combo_scale)
+        r1.addStretch()
+        dl.addLayout(r1)
 
-        # Row 3: smoothing defaults
-        row3 = QHBoxLayout()
-        row3.addWidget(QLabel("2D smooth:"))
+        # Row: smoothing defaults
+        r2 = QHBoxLayout()
+        r2.addWidget(QLabel("2D smooth:"))
         self.combo_smooth2d = QComboBox()
-        for p in presets.get("smooth_2d", []):
+        s2d_presets = presets.get("smooth_2d", [])
+        for p in s2d_presets:
             self.combo_smooth2d.addItem(p.get("label", "Raw"))
-        s2d = defaults.get("smooth_2d", {})
-        for i, p in enumerate(presets.get("smooth_2d", [])):
-            if {k: v for k, v in p.items() if k != "label"} == s2d:
+        s2d_def = defaults.get("smooth_2d", {})
+        for i, p in enumerate(s2d_presets):
+            if {k: v for k, v in p.items() if k != "label"} == s2d_def:
                 self.combo_smooth2d.setCurrentIndex(i)
-        row3.addWidget(self.combo_smooth2d)
-
-        row3.addWidget(QLabel("Drift smooth:"))
+        r2.addWidget(self.combo_smooth2d)
+        r2.addWidget(QLabel("Drift smooth:"))
         self.combo_smooth_drift = QComboBox()
-        for p in presets.get("smooth_drift", []):
+        sd_presets = presets.get("smooth_drift", [])
+        for p in sd_presets:
             self.combo_smooth_drift.addItem(p.get("label", "Raw"))
-        sd = defaults.get("smooth_drift", {})
-        for i, p in enumerate(presets.get("smooth_drift", [])):
-            if {k: v for k, v in p.items() if k != "label"} == sd:
+        sd_def = defaults.get("smooth_drift", {})
+        for i, p in enumerate(sd_presets):
+            if {k: v for k, v in p.items() if k != "label"} == sd_def:
                 self.combo_smooth_drift.setCurrentIndex(i)
-        row3.addWidget(self.combo_smooth_drift)
-        row3.addStretch()
-        ol.addLayout(row3)
+        r2.addWidget(self.combo_smooth_drift)
+        r2.addStretch()
+        dl.addLayout(r2)
 
-        # Row 4: noise thresholds
-        row4 = QHBoxLayout()
-        row4.addWidget(QLabel("Noise 2D (%):"))
+        # Row: noise thresholds
+        r3 = QHBoxLayout()
+        r3.addWidget(QLabel("Noise 2D (%):"))
         self.spin_noise2d = QDoubleSpinBox()
-        self.spin_noise2d.setRange(0, 10)
-        self.spin_noise2d.setSingleStep(0.1)
+        self.spin_noise2d.setRange(0, 10); self.spin_noise2d.setSingleStep(0.1)
         self.spin_noise2d.setValue(defaults.get("noise_2d", 0.5))
-        row4.addWidget(self.spin_noise2d)
-
-        row4.addWidget(QLabel("Drift:"))
+        r3.addWidget(self.spin_noise2d)
+        r3.addWidget(QLabel("Drift:"))
         self.spin_noise_drift = QDoubleSpinBox()
-        self.spin_noise_drift.setRange(0, 10)
-        self.spin_noise_drift.setSingleStep(0.5)
+        self.spin_noise_drift.setRange(0, 10); self.spin_noise_drift.setSingleStep(0.5)
         self.spin_noise_drift.setValue(defaults.get("noise_drift", 0))
-        row4.addWidget(self.spin_noise_drift)
-
-        row4.addWidget(QLabel("m/z:"))
+        r3.addWidget(self.spin_noise_drift)
+        r3.addWidget(QLabel("m/z:"))
         self.spin_noise_mz = QDoubleSpinBox()
-        self.spin_noise_mz.setRange(0, 10)
-        self.spin_noise_mz.setSingleStep(0.5)
+        self.spin_noise_mz.setRange(0, 10); self.spin_noise_mz.setSingleStep(0.5)
         self.spin_noise_mz.setValue(defaults.get("noise_mz", 0))
-        row4.addWidget(self.spin_noise_mz)
-        row4.addStretch()
-        ol.addLayout(row4)
+        r3.addWidget(self.spin_noise_mz)
+        r3.addStretch()
+        dl.addLayout(r3)
 
-        # Row 5: figure size + save
-        row5 = QHBoxLayout()
-        row5.addWidget(QLabel("Fig width:"))
+        # Row: figure
+        r4 = QHBoxLayout()
+        r4.addWidget(QLabel("Fig width:"))
         self.spin_width = QSpinBox()
-        self.spin_width.setRange(600, 2400)
-        self.spin_width.setSingleStep(100)
+        self.spin_width.setRange(600, 2400); self.spin_width.setSingleStep(100)
         self.spin_width.setValue(fig_cfg.get("width", 1190))
-        row5.addWidget(self.spin_width)
-
-        row5.addWidget(QLabel("Height:"))
+        r4.addWidget(self.spin_width)
+        r4.addWidget(QLabel("Height:"))
         self.spin_height = QSpinBox()
-        self.spin_height.setRange(400, 1600)
-        self.spin_height.setSingleStep(100)
+        self.spin_height.setRange(400, 1600); self.spin_height.setSingleStep(100)
         self.spin_height.setValue(fig_cfg.get("height", 680))
-        row5.addWidget(self.spin_height)
-
-        row5.addWidget(QLabel("Font:"))
+        r4.addWidget(self.spin_height)
+        r4.addWidget(QLabel("Font:"))
         self.spin_font = QSpinBox()
         self.spin_font.setRange(10, 32)
         self.spin_font.setValue(fig_cfg.get("font_size", 20))
-        row5.addWidget(self.spin_font)
+        r4.addWidget(self.spin_font)
+        r4.addStretch()
+        dl.addLayout(r4)
 
-        row5.addStretch()
+        cfg_tabs.addTab(defaults_w, "Defaults")
+
+        # ---- Tab 2: Presets (raw JSON editor) ----
+        presets_w = QWidget()
+        pl = QVBoxLayout(presets_w)
+        pl.setContentsMargins(8, 8, 8, 8)
+        pl_sub = QLabel("Available options shown in each HTML dropdown. Edit JSON directly to add/remove presets.")
+        pl_sub.setProperty("subtitle", True)
+        pl_sub.setWordWrap(True)
+        pl.addWidget(pl_sub)
+        self.presets_editor = QTextEdit()
+        self.presets_editor.setPlainText(json.dumps(presets, indent=2, ensure_ascii=False))
+        pl.addWidget(self.presets_editor)
+        cfg_tabs.addTab(presets_w, "Presets")
+
+        cfg_layout.addWidget(cfg_tabs)
+
+        # Save button
+        save_row = QHBoxLayout()
+        save_row.addStretch()
         btn_save = QPushButton("Save Config")
         btn_save.setProperty("secondary", True)
         btn_save.clicked.connect(self._save_config)
-        row5.addWidget(btn_save)
-        ol.addLayout(row5)
+        save_row.addWidget(btn_save)
+        cfg_layout.addLayout(save_row)
 
-        layout.addWidget(opts)
+        layout.addWidget(cfg_grp, stretch=1)
 
         # Run
         run_row = QHBoxLayout()
@@ -221,24 +241,25 @@ class HtmlViewerPanel(QWidget):
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
 
-        layout.addStretch()
-
     def _save_config(self):
-        """Write current UI values back to imms_plot_config.json."""
-        presets = self._cfg.get("presets", {})
+        presets_raw = self._cfg.get("presets", {})
 
-        # Read smoothing preset from combo index
+        # Try to parse presets from editor
+        try:
+            presets_raw = json.loads(self.presets_editor.toPlainText())
+        except json.JSONDecodeError as e:
+            self._log.log(f"Invalid presets JSON: {e}", "error")
+            return
+
+        s2d_presets = presets_raw.get("smooth_2d", [])
+        sd_presets = presets_raw.get("smooth_drift", [])
         s2d_idx = self.combo_smooth2d.currentIndex()
-        s2d_presets = presets.get("smooth_2d", [])
-        s2d = {k: v for k, v in s2d_presets[s2d_idx].items() if k != "label"} if s2d_idx < len(s2d_presets) else {"method": "raw"}
-
         sd_idx = self.combo_smooth_drift.currentIndex()
-        sd_presets = presets.get("smooth_drift", [])
+        s2d = {k: v for k, v in s2d_presets[s2d_idx].items() if k != "label"} if s2d_idx < len(s2d_presets) else {"method": "raw"}
         sd = {k: v for k, v in sd_presets[sd_idx].items() if k != "label"} if sd_idx < len(sd_presets) else {"method": "raw"}
 
         self._cfg["defaults"] = {
-            "smooth_2d": s2d,
-            "scale": self.combo_scale.currentText(),
+            "smooth_2d": s2d, "scale": self.combo_scale.currentText(),
             "smooth_drift": sd,
             "noise_2d": self.spin_noise2d.value(),
             "noise_drift": self.spin_noise_drift.value(),
@@ -251,6 +272,7 @@ class HtmlViewerPanel(QWidget):
             "width": self.spin_width.value(),
             "height": self.spin_height.value(),
         }
+        self._cfg["presets"] = presets_raw
         _save_config(self._cfg)
         self._log.log("Config saved to imms_plot_config.json", "success")
 
@@ -260,9 +282,7 @@ class HtmlViewerPanel(QWidget):
         if not data or not out:
             self._log.log("Set text directory and output directory.", "warning")
             return
-        # Save config before running so the viewer uses current settings
         self._save_config()
-
         raw = self.pick_raw.path() or None
         skip = self.chk_skip.isChecked()
         workers = self.spin_workers.value()
@@ -270,7 +290,7 @@ class HtmlViewerPanel(QWidget):
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
-        self._log.log(f"Generating HTML plots...", "accent")
+        self._log.log("Generating HTML plots...", "accent")
 
         self._worker = Worker(self._do_plot, data, out, raw, skip, workers)
         self._worker.finished.connect(self._on_done)
@@ -280,23 +300,16 @@ class HtmlViewerPanel(QWidget):
     def _do_plot(self, data, out, raw, skip, workers):
         data_p = Path(data)
         im_files = list(data_p.glob("*_im.txt"))
-        self._log._sig.message.emit(
-            f"Found {len(im_files)} IM files in {data_p.name}", "info")
+        self._log._sig.message.emit(f"Found {len(im_files)} IM files", "info")
         if not im_files:
             raise FileNotFoundError(f"No _im.txt files found in {data}")
-
         out_p = Path(out)
         for stale in out_p.glob("*_2d_imms.html"):
             if stale.stat().st_size == 0:
                 stale.unlink()
-
         from deconvovo.imms_plot import run as plot_run
-        results = plot_run(
-            data_p, out_p,
-            skip_existing=skip,
-            raw_dir=Path(raw) if raw else None,
-            n_workers=workers,
-        )
+        results = plot_run(data_p, out_p, skip_existing=skip,
+                           raw_dir=Path(raw) if raw else None, n_workers=workers)
         errors = []
         if results:
             for r in results:
@@ -313,9 +326,8 @@ class HtmlViewerPanel(QWidget):
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
         out = Path(self.pick_out.path())
-        htmls = list(out.glob("*_2d_imms.html"))
-        n_ok = sum(1 for h in htmls if h.stat().st_size > 0)
-        self._log.log(f"Done: {n_ok} HTML files", "success")
+        n = sum(1 for h in out.glob("*_2d_imms.html") if h.stat().st_size > 0)
+        self._log.log(f"Done: {n} HTML files", "success")
 
     def _on_error(self, msg):
         self.btn_run.setEnabled(True)

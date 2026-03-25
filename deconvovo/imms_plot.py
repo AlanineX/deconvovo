@@ -54,7 +54,8 @@ def run(data_dir: Path, out_dir: Path, skip_existing: bool = False,
     run_args = []
     for ms_file in ms_files:
         run_name = ms_file.stem.replace("_ms", "")
-        if skip_existing and (out_dir / f"{run_name}_2d_imms.html").exists():
+        html_out = out_dir / f"{run_name}_2d_imms.html"
+        if skip_existing and html_out.exists() and html_out.stat().st_size > 0:
             continue
         if not (data_dir / f"{run_name}_im.txt").exists():
             continue

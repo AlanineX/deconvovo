@@ -104,19 +104,32 @@ class HtmlViewerPanel(QWidget):
             f"Found {len(im_files)} IM files in {data_p.name}", "info")
         if not im_files:
             raise FileNotFoundError(f"No _im.txt files found in {data}")
+
+        # Delete any 0-byte HTML from previous failed runs
+        out_p = Path(out)
+        for stale in out_p.glob("*_2d_imms.html"):
+            if stale.stat().st_size == 0:
+                stale.unlink()
+                self._log._sig.message.emit(f"  Removed stale 0-byte: {stale.name}", "warning")
+
         from deconvovo.imms_plot import run as plot_run
         results = plot_run(
-            data_p, Path(out),
+            data_p, out_p,
             skip_existing=skip,
             raw_dir=Path(raw) if raw else None,
             n_workers=workers,
         )
-        # Surface per-run errors to the GUI log
+        # Surface per-run errors
+        errors = []
         if results:
             for r in results:
                 status = " | ".join(r.get("status", []))
                 level = "error" if "ERROR" in status else "info"
                 self._log._sig.message.emit(f"  {r['run_name']}: {status}", level)
+                if "ERROR" in status:
+                    errors.append(f"{r['run_name']}: {status}")
+        if errors:
+            raise RuntimeError("HTML generation failed:\n" + "\n".join(errors))
         return results
 
     def _on_done(self, results):

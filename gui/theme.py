@@ -1,6 +1,10 @@
 """Theme for DeconVoVo GUI — dark and light modes."""
 from __future__ import annotations
 
+import atexit
+import os
+import tempfile
+
 # -- Shared accent colors --
 ACCENT = "#5b8af5"
 ACCENT_HOVER = "#7aa4ff"
@@ -34,6 +38,46 @@ _LIGHT = dict(
 TEXT_DIM = _DARK["text_dim"]
 TEXT = _DARK["text"]
 
+# -- Checkbox checkmark image (generated once via QPainter → temp PNG) --
+_checkmark_path: str | None = None
+
+
+def _ensure_checkmark_png() -> str:
+    """Create a 16x16 white checkmark PNG in a temp file.
+
+    Uses QPainter so the result is a real file path that Qt stylesheets
+    can reference cross-platform (inline SVG data URIs are broken on
+    Windows).  The file is cleaned up at interpreter exit.
+    """
+    global _checkmark_path
+    if _checkmark_path and os.path.isfile(_checkmark_path):
+        return _checkmark_path
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+
+    size = 16
+    pm = QPixmap(size, size)
+    pm.fill(QColor(0, 0, 0, 0))  # transparent
+
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(255, 255, 255), 2.5)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    # Checkmark path: short leg (3,8)->(6,11), long leg (6,11)->(13,4)
+    painter.drawLine(3, 8, 6, 11)
+    painter.drawLine(6, 11, 13, 4)
+    painter.end()
+
+    fd, path = tempfile.mkstemp(suffix=".png", prefix="deconvovo_check_")
+    os.close(fd)
+    pm.save(path, "PNG")
+    _checkmark_path = path
+    atexit.register(lambda: os.remove(path) if os.path.isfile(path) else None)
+    return path
+
 
 def mpl_rc(dark=True):
     p = _DARK if dark else _LIGHT
@@ -55,6 +99,8 @@ def stylesheet(dark=True):
     A, AH, AP = ACCENT, ACCENT_HOVER, ACCENT_PRESSED
     FS, FSS, FST, FSH = FONT_SIZE, FONT_SIZE_SMALL, FONT_SIZE_TITLE, FONT_SIZE_HEADER
     FF = FONT_FAMILY
+    # Forward slashes work in Qt stylesheet url() on all platforms
+    chk = _ensure_checkmark_png().replace("\\", "/")
     return f"""
     QWidget {{ background-color:{p['bg']}; color:{p['text']};
         font-family:"{FF}","Liberation Sans","Arial",sans-serif; font-size:{FS}pt; }}
@@ -140,5 +186,6 @@ def stylesheet(dark=True):
     QCheckBox::indicator {{ width:18px; height:18px; border:2px solid {p['border']};
         border-radius:4px; background-color:{p['bg_input']}; }}
     QCheckBox::indicator:hover {{ border-color:{A}; }}
-    QCheckBox::indicator:checked {{ border-color:{A}; background-color:{A}; }}
+    QCheckBox::indicator:checked {{ border-color:{A}; background-color:{A};
+        image:url("{chk}"); }}
     """

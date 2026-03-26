@@ -157,58 +157,63 @@ def extract_evidence(mzml_path: Path, peptides: pd.DataFrame,
     return evidence, global_data
 
 
+def _stick_trace(mz, intensity):
+    """Convert arrays to zero-interleaved stick spectrum (vertical lines)."""
+    x, y = [], []
+    for m, i in zip(mz, intensity):
+        x.extend([m, m, None])
+        y.extend([0, i, None])
+    return x, y
+
+
 def build_html(evidence, gd, title="Peptide Evidence Viewer"):
     ev_j = json.dumps(evidence)
     gd_j = json.dumps(gd)
+    N = NEUTRON
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{title}</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
 *{{box-sizing:border-box}}
-body{{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:10px;background:#f8f8fc}}
-h2{{font-size:17px;margin:0 0 8px;color:#333}}
-.row{{display:flex;gap:10px;margin-bottom:10px}}
-.plot{{background:#fff;border:1px solid #ddd;border-radius:6px}}
-#tic{{flex:1;height:200px}} #fullspec{{flex:1;height:200px}}
-#main{{display:flex;gap:10px}}
-#tbl-wrap{{width:460px;flex-shrink:0}}
-#tbl-scroll{{max-height:50vh;overflow-y:auto;border:1px solid #ddd;border-radius:6px;background:#fff}}
-table{{width:100%;border-collapse:collapse;font-size:11px;cursor:pointer}}
-th{{background:#e0e0ee;padding:5px 6px;text-align:left;position:sticky;top:0;cursor:pointer;user-select:none;white-space:nowrap}}
-th:hover{{background:#c8c8dd}} th.asc::after{{content:' \\25B2'}} th.desc::after{{content:' \\25BC'}}
-td{{padding:3px 6px;border-bottom:1px solid #eee;white-space:nowrap}}
-tr:hover{{background:#e8f0ff}} tr.sel{{background:#b8d0ff}} tr.scan-hl{{background:#fff8e0}}
-#rhs{{flex:1;display:flex;flex-direction:column;gap:10px}}
-#xic{{height:180px}}
-#env{{height:260px}}
-#pinfo{{font-size:11px}}
-#pinfo td{{padding:2px 5px}}
-.ok{{color:#2e7d32}} .no{{color:#c62828}}
-#status{{font-size:11px;color:#666;padding:4px 0}}
-.info{{font-size:11px;color:#888;padding:2px 0}}
+body{{font-family:'Liberation Sans',Arial,sans-serif;margin:0;padding:8px;background:#fff}}
+#wrap{{display:flex;gap:8px;height:calc(100vh - 56px)}}
+#plots{{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}}
+#plots .p{{background:#fff;border:1px solid #e0e0e0;border-radius:4px;flex:1;min-height:120px}}
+#right{{flex:1;display:flex;flex-direction:column;gap:6px}}
+#tbl-scroll{{flex:1;overflow-y:auto;border:1px solid #e0e0e0;border-radius:4px;background:#fff}}
+table{{width:100%;border-collapse:collapse;font-size:13px;cursor:pointer;font-family:'Liberation Sans',Arial,sans-serif}}
+th{{background:#f4f4f8;padding:6px 8px;text-align:left;position:sticky;top:0;
+    cursor:pointer;user-select:none;white-space:nowrap;border-bottom:2px solid #ddd;font-size:12px}}
+th:hover{{background:#e0e0ee}} th.asc::after{{content:' \\25B2'}} th.desc::after{{content:' \\25BC'}}
+td{{padding:4px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;font-size:12px}}
+tr:hover{{background:#e8f0ff}} tr.sel{{background:#c0d8ff}} tr.mz-hl{{background:#fff8e0}}
+#pinfo{{font-size:12px;border:1px solid #e0e0e0;border-radius:4px;padding:8px;background:#fafafe}}
+#pinfo td{{padding:2px 6px}}
+.ok{{color:#2e7d32;font-weight:600}} .no{{color:#c62828}}
+#status{{font-size:13px;color:#555;padding:6px 10px;background:#f8f8fc;border-radius:4px;
+         border:1px solid #e0e0e0;margin-bottom:6px}}
+h2{{font-size:20px;margin:0 0 8px;color:#333;font-weight:600;font-family:'Liberation Sans',Arial,sans-serif}}
+.hint{{font-size:12px;color:#999;padding:2px 0}}
 </style></head><body>
 <h2>{title}</h2>
 <div id="status"></div>
 
-<div class="row">
-  <div id="tic" class="plot"></div>
-  <div id="fullspec" class="plot"></div>
+<div id="wrap">
+<div id="plots">
+  <div id="tic" class="p"></div>
+  <div id="xic" class="p"></div>
+  <div id="ms1" class="p"></div>
+  <div id="env" class="p"></div>
 </div>
-
-<div id="main">
-<div id="tbl-wrap">
-  <div class="info">Click headers to sort. Click row to view envelope. Click TIC to change scan.</div>
+<div id="right">
+  <div class="hint">Click headers to sort. Click row to view. TIC: click to change scan.</div>
   <div id="tbl-scroll">
     <table><thead><tr>
       <th data-c="seq">Sequence</th><th data-c="s">Start</th><th data-c="e">End</th>
       <th data-c="z">z</th><th data-c="mz">m/z</th><th data-c="sc">Score</th>
-      <th data-c="ni">Iso</th><th data-c="ppm">ppm</th><th data-c="scan">Scan</th>
+      <th data-c="ni">Iso</th><th data-c="ppm">ppm</th>
     </tr></thead><tbody id="tb"></tbody></table>
   </div>
-</div>
-<div id="rhs">
-  <div id="xic" class="plot"></div>
-  <div id="env" class="plot"></div>
   <div id="pinfo"></div>
 </div>
 </div>
@@ -216,64 +221,140 @@ tr:hover{{background:#e8f0ff}} tr.sel{{background:#b8d0ff}} tr.scan-hl{{backgrou
 <script>
 var D={ev_j};
 var G={gd_j};
-var N={NEUTRON};
-var curScan=G.apex_scan, sortC=null, sortA=true;
+var N={N};
+var curScan=G.apex_scan, curPep=-1, sortC=null, sortA=true;
 var ord=D.map(function(_,i){{return i}});
 
-// ---- TIC ----
-var ticTrace={{x:G.tic_rt, y:G.tic_int, type:'scatter', mode:'lines',
-  line:{{color:'#4a9eff',width:1}}, hovertemplate:'RT:%{{x:.2f}} min<br>TIC:%{{y:.0f}}<extra></extra>'}};
-var ticLine={{x:[0,0],y:[0,1],type:'scatter',mode:'lines',
-  line:{{color:'red',width:1.5,dash:'dot'}},showlegend:false,yaxis:'y'}};
-Plotly.newPlot('tic',[ticTrace,ticLine],{{
-  margin:{{t:25,b:30,l:50,r:10}},title:'TIC Chromatogram (click to select scan)',
-  xaxis:{{title:'RT (min)'}},yaxis:{{title:'TIC'}},
-}},{{responsive:true}});
+// ---- Font config ----
+var FS=24, FF="Liberation Sans, Arial, Helvetica, sans-serif", LC="#333";
+var tf={{family:FF,size:Math.round(FS*0.7),color:LC}};
+var tkf={{family:FF,size:Math.round(FS*0.55),color:'#444'}};
+var alf={{family:FF,size:Math.round(FS*0.6),color:LC}};  // axis label font
+var gridStyle={{gridwidth:0.5,gridcolor:'#e0e0e0',griddash:'dot'}};
+var axX={{showline:true,linewidth:1,linecolor:'#bbb',zeroline:false}};
+var axY={{showline:true,linewidth:1,linecolor:'#bbb',zeroline:false,rangemode:'tozero',fixedrange:true}};
+
+// ---- Stick spectrum helper ----
+function stickData(mz,inten){{
+  var x=[],y=[];
+  for(var i=0;i<mz.length;i++){{x.push(mz[i],mz[i],null);y.push(0,inten[i],null);}}
+  return {{x:x,y:y}};
+}}
+
+// ---- Binary search (from IMMS viewer) ----
+function bsearch(arr,val){{
+  var lo=0,hi=arr.length-1;
+  while(lo<=hi){{var mid=(lo+hi)>>1;if(arr[mid]<val)lo=mid+1;else hi=mid-1;}}
+  return lo;
+}}
+
+// ---- 1. TIC ----
+var rtMin=G.tic_rt[0],rtMax=G.tic_rt[G.tic_rt.length-1];
+Plotly.newPlot('tic',[
+  {{x:G.tic_rt,y:G.tic_int,type:'scatter',mode:'lines',
+    line:{{color:'#333',width:0.8}},hovertemplate:'RT: %{{x:.2f}} min<br>TIC: %{{y:.0f}}<extra></extra>'}},
+  {{x:[0,0],y:[0,1],type:'scatter',mode:'lines',
+    line:{{color:'#e53935',width:1.5,dash:'dot'}},showlegend:false}},
+],{{
+  margin:{{t:32,b:36,l:65,r:10}},
+  title:{{text:'TIC Chromatogram',font:tf}},
+  xaxis:Object.assign({{title:{{text:'RT (min)',font:alf}},tickfont:tkf,range:[rtMin,rtMax]}},axX,gridStyle),
+  yaxis:Object.assign({{title:{{text:'TIC',font:alf}},tickfont:tkf}},axY,gridStyle),
+  showlegend:false,
+}},{{responsive:true,displayModeBar:false}});
 
 document.getElementById('tic').on('plotly_click',function(ed){{
   if(!ed||!ed.points||!ed.points[0])return;
-  var pi=ed.points[0].pointIndex;
-  var sn=G.tic_scans[pi];
-  // Snap to nearest stored scan
+  var sn=G.tic_scans[ed.points[0].pointIndex];
   var best=G.stored_scans[0],bd=Math.abs(sn-best);
   G.stored_scans.forEach(function(s){{var d=Math.abs(sn-s);if(d<bd){{best=s;bd=d}}}});
   selectScan(best);
 }});
 
+// XIC, MS1, Envelope created on first showPeptide() call via Plotly.react
+
+// ---- Auto-enlarge y on x-zoom (from IMMS pattern) ----
+// For each plot with stick data, recalculate y-range from visible x-range
+function autoScaleY(divId,traceIdx){{
+  try{{
+    var div=document.getElementById(divId);
+    if(!div||!div._fullLayout||!div._fullData)return;
+    var xr=div._fullLayout.xaxis.range;
+    if(!xr)return;
+    var tr=div._fullData[traceIdx];
+    if(!tr||!tr.x||!tr.y)return;
+    var xd=tr.x, yd=tr.y, ymax=0;
+    for(var i=0;i<xd.length;i++){{
+      if(xd[i]!==null&&xd[i]>=xr[0]&&xd[i]<=xr[1]&&yd[i]!==null&&yd[i]>ymax)ymax=yd[i];
+    }}
+    if(ymax>0)Plotly.relayout(divId,{{'yaxis.range':[0,ymax*1.08]}});
+  }}catch(e){{}}
+}}
+
+// Attach auto-scale — called after first showPeptide when all plots exist
+var _scaling={{}};
+function attachAutoScale(){{
+  ['tic','xic','ms1','env'].forEach(function(id){{
+    if(_scaling[id]!==undefined)return; // already attached
+    var el=document.getElementById(id);
+    if(!el||!el._fullLayout)return; // plot not created yet
+    _scaling[id]=false;
+    el.on('plotly_relayout',function(ed){{
+      if(_scaling[id])return;
+      if(ed&&(ed['xaxis.range[0]']!==undefined||ed['xaxis.range']!==undefined||ed['xaxis.autorange'])){{
+        _scaling[id]=true;
+        requestAnimationFrame(function(){{
+          autoScaleY(id,0);
+          _scaling[id]=false;
+        }});
+      }}
+    }});
+  }});
+}}
+
+// Highlight peptides with same m/z as selected (within 0.05 Da tolerance)
+function highlightSameMz(selMz){{
+  var tol=0.05;
+  document.querySelectorAll('tr.mz-hl').forEach(function(t){{t.classList.remove('mz-hl')}});
+  D.forEach(function(d,i){{
+    if(Math.abs(d.mz-selMz)<tol){{
+      var t=document.querySelector('tr[data-idx="'+i+'"]');
+      if(t&&!t.classList.contains('sel'))t.classList.add('mz-hl');
+    }}
+  }});
+}}
+
+// Envelope created on first showPeptide() call via Plotly.react
+
+// ==== selectScan ====
 function selectScan(sn){{
   curScan=sn;
-  // Move TIC line
-  var idx=G.tic_scans.indexOf(sn);
-  if(idx<0)idx=0;
+  var idx=G.tic_scans.indexOf(sn); if(idx<0)idx=0;
   var rt=G.tic_rt[idx];
   var ymax=Math.max.apply(null,G.tic_int);
   Plotly.restyle('tic',{{x:[[rt,rt]],y:[[0,ymax]]}},1);
 
-  // Load spectrum
   var sp=G.scan_spectra[sn];
   if(sp){{
-    Plotly.react('fullspec',[{{
-      x:sp.mz,y:sp['int'],type:'scatter',mode:'lines',
-      line:{{color:'#555',width:0.5}},
-      hovertemplate:'m/z:%{{x:.4f}}<br>Int:%{{y:.0f}}<extra></extra>',
-    }}],{{
-      margin:{{t:25,b:30,l:50,r:10}},
-      title:'MS1 Scan '+sn+' (RT:'+G.tic_rt[G.tic_scans.indexOf(sn)].toFixed(2)+' min)',
-      xaxis:{{title:'m/z'}},yaxis:{{title:'Intensity'}},
+    var st=stickData(sp.mz,sp['int']);
+    Plotly.react('ms1',[
+      {{x:st.x,y:st.y,type:'scatter',mode:'lines',line:{{color:'#333',width:0.6}},
+        hovertemplate:'m/z: %{{x:.4f}}<br>Int: %{{y:.0f}}<extra></extra>',name:'MS1'}},
+    ],{{
+      margin:{{t:32,b:36,l:65,r:10}},
+      title:{{text:'MS1 Scan '+sn+' (RT: '+rt.toFixed(2)+' min)',font:tf}},
+      xaxis:Object.assign({{title:{{text:'m/z',font:alf}},tickfont:tkf}},axX,gridStyle),
+      yaxis:Object.assign({{title:{{text:'Intensity',font:alf}},tickfont:tkf}},axY,gridStyle),
+      showlegend:false,
     }},{{responsive:true}});
   }}
 
-  // Highlight table rows matching this scan
-  document.querySelectorAll('tr.scan-hl').forEach(function(r){{r.classList.remove('scan-hl')}});
-  document.querySelectorAll('tr[data-scan="'+sn+'"]').forEach(function(r){{r.classList.add('scan-hl')}});
-
-  var nAtScan=D.filter(function(d){{return d.scan===sn}}).length;
+  var nAt=D.filter(function(d){{return d.scan===sn}}).length;
   document.getElementById('status').textContent=
-    D.length+' peptides | Scan '+sn+' | RT '+G.tic_rt[G.tic_scans.indexOf(sn)].toFixed(2)+
-    ' min | '+nAtScan+' peptides at this scan';
+    D.length+' peptides | Scan '+sn+' | RT '+rt.toFixed(2)+' min | '+nAt+' at this scan';
 }}
 
-// ---- Table ----
+// ==== Table ====
 var tb=document.getElementById('tb');
 function renderTable(){{
   tb.innerHTML='';
@@ -282,10 +363,8 @@ function renderTable(){{
     tr.dataset.idx=i; tr.dataset.scan=d.scan;
     tr.innerHTML='<td>'+d.seq+'</td><td>'+d.s+'</td><td>'+d.e+'</td><td>'+d.z+
       '</td><td>'+d.mz.toFixed(2)+'</td><td>'+d.sc.toFixed(0)+
-      '</td><td>'+d.ni+'</td><td>'+(d.ppm!==null?d.ppm.toFixed(1):'-')+
-      '</td><td>'+d.scan+'</td>';
+      '</td><td>'+d.ni+'</td><td>'+(d.ppm!==null?d.ppm.toFixed(1):'-')+'</td>';
     tr.onclick=function(){{showPeptide(i)}};
-    if(d.scan===curScan)tr.classList.add('scan-hl');
     tb.appendChild(tr);
   }});
 }}
@@ -306,81 +385,96 @@ document.querySelectorAll('th[data-c]').forEach(function(th){{
 }});
 renderTable();
 
-// ---- Envelope ----
+// ==== showPeptide ====
 function showPeptide(idx){{
+  curPep=idx;
   document.querySelectorAll('tr.sel').forEach(function(r){{r.classList.remove('sel')}});
   var tr=document.querySelector('tr[data-idx="'+idx+'"]');
-  if(tr)tr.classList.add('sel');
+  if(tr){{tr.classList.add('sel');tr.scrollIntoView({{block:'nearest'}});}}
   var d=D[idx];
 
-  // Mark on full spectrum
+  // XIC (same RT axis as TIC)
+  if(d.xrt&&d.xi){{
+    Plotly.react('xic',[
+      {{x:d.xrt,y:d.xi,type:'scatter',mode:'lines',line:{{color:'#1565c0',width:1}},
+        fill:'tozeroy',fillcolor:'rgba(21,101,192,0.08)',
+        hovertemplate:'RT: %{{x:.2f}} min<br>Int: %{{y:.0f}}<extra></extra>'}},
+    ],{{
+      margin:{{t:32,b:36,l:65,r:10}},
+      title:{{text:'XIC: '+d.seq+' (m/z '+d.mz.toFixed(2)+', z='+d.z+'+)',font:tf}},
+      xaxis:Object.assign({{title:{{text:'RT (min)',font:alf}},tickfont:tkf,range:[rtMin,rtMax]}},axX,gridStyle),
+      yaxis:Object.assign({{title:{{text:'Intensity',font:alf}},tickfont:tkf}},axY,gridStyle),
+      showlegend:false,
+    }},{{responsive:true,displayModeBar:false}});
+  }}
+
+  // MS1 scan — stick spectrum + peptide markers, auto-zoom to peptide m/z
   var sp=G.scan_spectra[d.scan];
   if(sp){{
-    var markers=d.m.map(function(p){{return p.mz_t}});
+    var st=stickData(sp.mz,sp['int']);
+    var mk=d.m.map(function(p){{return p.mz_t}});
     var mi=d.m.map(function(p){{return p.ok?p.i:0}});
-    Plotly.react('fullspec',[
-      {{x:sp.mz,y:sp['int'],type:'scatter',mode:'lines',line:{{color:'#555',width:0.5}},
-        hovertemplate:'m/z:%{{x:.4f}}<br>Int:%{{y:.0f}}<extra></extra>',name:'Spectrum'}},
-      {{x:markers,y:mi,type:'scatter',mode:'markers',
-        marker:{{color:'red',size:8,symbol:'triangle-down'}},
-        name:d.seq+' z='+d.z+'+'}},
+    var mt=d.m.map(function(p){{return p.ok?'M+'+p.iso:''}});
+    var xr=[d.mz-2, d.mz+7*N/d.z+2];
+    // Find max y in range for proper scaling
+    var ym=0;
+    for(var i=0;i<sp.mz.length;i++)if(sp.mz[i]>=xr[0]&&sp.mz[i]<=xr[1]&&sp['int'][i]>ym)ym=sp['int'][i];
+    Plotly.react('ms1',[
+      {{x:st.x,y:st.y,type:'scatter',mode:'lines',line:{{color:'#333',width:0.6}},
+        hovertemplate:'m/z: %{{x:.4f}}<br>Int: %{{y:.0f}}<extra></extra>',name:'MS1'}},
+      {{x:mk,y:mi,type:'scatter',mode:'markers',marker:{{color:'#e53935',size:7,symbol:'triangle-down'}},
+        name:'Peptide',hovertemplate:'%{{text}}<extra></extra>',text:mt}},
     ],{{
-      margin:{{t:25,b:30,l:50,r:10}},
-      title:'MS1 Scan '+d.scan,
-      xaxis:{{title:'m/z',range:[d.mz-3,d.mz+8*N/d.z+3]}},
-      yaxis:{{title:'Intensity'}},
-      showlegend:true,legend:{{x:0.65,y:1}},
+      margin:{{t:32,b:36,l:65,r:10}},
+      title:{{text:'MS1 Scan '+d.scan+' (RT: '+G.tic_rt[G.tic_scans.indexOf(d.scan)].toFixed(2)+' min)',font:tf}},
+      xaxis:Object.assign({{title:{{text:'m/z',font:alf}},tickfont:tkf,range:xr}},axX,gridStyle),
+      yaxis:Object.assign({{title:{{text:'Intensity',font:alf}},tickfont:tkf,range:[0,ym*1.08]}},axY,gridStyle),
+      showlegend:true,legend:{{x:0.75,y:0.95,font:{{size:Math.round(FS*0.5),family:FF}}}},
     }},{{responsive:true}});
   }}
 
-  // XIC chromatogram
-  if(d.xrt && d.xi) {{
-    Plotly.newPlot('xic',[{{
-      x:d.xrt, y:d.xi, type:'scatter', mode:'lines',
-      line:{{color:'#4a9eff',width:1}}, fill:'tozeroy',
-      fillcolor:'rgba(74,158,255,0.12)',
-      hovertemplate:'RT: %{{x:.2f}} min<br>Int: %{{y:.0f}}<extra></extra>',
-    }}],{{
-      title:'XIC: '+d.seq+' (m/z '+d.mz.toFixed(2)+', z='+d.z+'+)',
-      margin:{{t:28,b:28,l:50,r:10}},
-      xaxis:{{title:'RT (min)'}},yaxis:{{title:'Intensity'}},
-    }},{{responsive:true}});
-  }}
-
-  // Envelope detail
-  Plotly.newPlot('env',[
-    {{x:d.rmz,y:d.ri,type:'bar',width:0.003,marker:{{color:'#aab'}},name:'MS1',
-      hovertemplate:'m/z:%{{x:.4f}}<br>Int:%{{y:.0f}}<extra></extra>'}},
+  // Envelope — stick spectrum + theoretical diamonds
+  var est=stickData(d.rmz,d.ri);
+  var emc=d.m.map(function(p){{return p.ok?'#1565c0':'#c62828'}});
+  var emt=d.m.map(function(p){{return 'M+'+p.iso+(p.ok?' '+p.ppm.toFixed(1)+'ppm':' miss')}});
+  var eym=0; for(var i=0;i<d.ri.length;i++)if(d.ri[i]>eym)eym=d.ri[i];
+  Plotly.react('env',[
+    {{x:est.x,y:est.y,type:'scatter',mode:'lines',line:{{color:'#888',width:0.8}},name:'MS1',
+      hovertemplate:'m/z: %{{x:.4f}}<br>Int: %{{y:.0f}}<extra></extra>'}},
     {{x:d.m.map(function(p){{return p.mz_t}}),
       y:d.m.map(function(p){{return p.ok?p.i:0}}),
       type:'scatter',mode:'markers+text',
-      marker:{{color:d.m.map(function(p){{return p.ok?'#1565c0':'#c62828'}}),size:9,symbol:'diamond'}},
-      text:d.m.map(function(p){{return 'M+'+p.iso+(p.ok?' '+p.ppm.toFixed(1)+'ppm':' miss')}}),
-      textposition:'top center',textfont:{{size:8}},name:'Theoretical'}},
+      marker:{{color:emc,size:8,symbol:'diamond'}},textposition:'top center',
+      textfont:{{size:Math.round(FS*0.45),family:FF}},name:'Theoretical',text:emt}},
   ],{{
-    title:d.seq+'  z='+d.z+'+  scan:'+d.scan,
-    xaxis:{{title:'m/z'}},yaxis:{{title:'Intensity'}},
-    margin:{{t:30,b:35,l:50,r:10}},bargap:0,showlegend:true,legend:{{x:0.6,y:1}},
-  }},{{responsive:true}});
+    margin:{{t:32,b:36,l:65,r:10}},
+    title:{{text:d.seq+'  z='+d.z+'+  scan:'+d.scan,font:tf}},
+    xaxis:Object.assign({{title:{{text:'m/z',font:alf}},tickfont:tkf}},axX,gridStyle),
+    yaxis:Object.assign({{title:{{text:'Intensity',font:alf}},tickfont:tkf,range:[0,eym*1.15]}},axY,gridStyle),
+    showlegend:true,legend:{{x:0.65,y:0.95,font:{{size:Math.round(FS*0.5),family:FF}}}},bargap:0,
+  }},{{responsive:true,displayModeBar:false}});
 
-  // Peak table
-  var h='<table><tr><th>Iso</th><th>m/z theo</th><th>m/z obs</th><th>Int</th><th>ppm</th></tr>';
+  // Peak info table
+  var h='<table style="width:100%"><tr><th>Iso</th><th>m/z theo</th><th>m/z obs</th><th>Int</th><th>ppm</th></tr>';
   d.m.forEach(function(p){{
     h+='<tr class="'+(p.ok?'ok':'no')+'"><td>M+'+p.iso+'</td><td>'+p.mz_t.toFixed(4)+
       '</td><td>'+(p.mz_o?p.mz_o.toFixed(4):'-')+'</td><td>'+(p.i>0?p.i.toFixed(0):'-')+
       '</td><td>'+(p.ppm!==null?p.ppm.toFixed(2):'-')+'</td></tr>';
   }});
-  h+='</table><div class="info">Avg ppm: '+(d.ppm!==null?d.ppm.toFixed(2):'-')+
+  h+='</table><div style="margin-top:4px;color:#666;font-size:10px">Avg ppm: '+(d.ppm!==null?d.ppm.toFixed(2):'-')+
     ' | Score: '+d.sc.toFixed(1)+' | Matched: '+d.ni+'/5</div>';
   document.getElementById('pinfo').innerHTML=h;
 
-  // Also select this scan on TIC
+  highlightSameMz(d.mz);
   selectScan(d.scan);
 }}
 
 // Init
 selectScan(G.apex_scan);
-if(D.length>0)showPeptide(ord[0]);
+if(D.length>0){{
+  showPeptide(ord[0]);
+  setTimeout(attachAutoScale,300);
+}}
 </script></body></html>"""
 
 

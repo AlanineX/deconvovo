@@ -149,7 +149,7 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     from collections import defaultdict
     _drift_groups = defaultdict(list)
     for _mz, _dr, _it in zip(mz_nz, drift_nz, int_nz):
-        _drift_groups[int(_dr)].append([round(float(_mz), 2), round(float(_it))])
+        _drift_groups[int(_dr)].append([round(float(_mz), 4), round(float(_it))])
     _raw_im = []
     for _d in range(n_drift):
         pts = _drift_groups.get(_d, [])
@@ -188,11 +188,13 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
         hovertemplate="Drift: %{y:.3f}<br>TIC: %{x:.0f}<extra></extra>",
     ), row=1, col=1)
 
-    # m/z spectrum (bottom) — raw MS data (no drift-dependent scaling)
+    # m/z spectrum (bottom) — initial: profile trace (drift-summed, native resolution)
+    # so first paint shows data even before any user interaction. updateMarginals()
+    # replaces this whenever the user pans/zooms or toggles MS Mode.
     fig.add_trace(go.Scatter(
-        x=ms_mz, y=ms_int, mode="lines",
-        line=dict(color="black", width=0.5), showlegend=False,
-        hovertemplate="m/z: %{x:.4f}<br>Int: %{y:.0f}<extra></extra>",
+        x=ms_mz.tolist(), y=ms_int.tolist(), mode="lines",
+        line=dict(color="#333", width=0.6), showlegend=False,
+        hovertemplate="m/z: %{x:.4f}<br>I: %{y:.0f}<extra></extra>",
     ), row=2, col=2)
 
     # 2D heatmap (center) — initial: RAW (no smoothing)
@@ -373,6 +375,13 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
     </select>
   </div>
   <span style="color:#ccc">|</span>
+  <div class="ctl">
+    <label>m/z Mode:</label>
+    <select id="msmode" title="Sticks: peak picks shown as vertical lines (cleaner). Profile: raw continuous trace.">
+      <option value="stick">Sticks</option>
+      <option value="profile" selected>Profile</option>
+    </select>
+  </div>
   <div class="ctl">
     <label>m/z Noise:</label>
     <select id="noisemz">
@@ -618,13 +627,23 @@ function getVisibleRange() {{
   if (layout.yaxis2 && layout.yaxis2.range) yr = layout.yaxis2.range.slice();
   // Fallback to full range
   var mzLo = xr ? xr[0] : MZ[0], mzHi = xr ? xr[1] : MZ[nM-1];
-  var dLo  = yr ? Math.max(0, Math.floor(yr[0])) : 0;
-  var dHi  = yr ? Math.min(nD-1, Math.ceil(yr[1])) : nD-1;
+  var drLo = yr ? yr[0] : DR[0],  drHi = yr ? yr[1] : DR[nD-1];
+  // current heatmap-bin indices in DR (drift)
+  var dBl = 0, dBh = nD - 1;
+  if (yr) {{
+    for (var i = 0; i < nD; i++) if (DR[i] >= drLo) {{ dBl = i; break; }}
+    for (var i = nD - 1; i >= 0; i--) if (DR[i] <= drHi) {{ dBh = i; break; }}
+  }}
   // m/z bin indices
   var mBl = 0, mBh = nM-1;
   for (var i = 0; i < nM; i++) if (MZ[i] >= mzLo) {{ mBl = i; break; }}
   for (var i = nM-1; i >= 0; i--) if (MZ[i] <= mzHi) {{ mBh = i; break; }}
-  return {{ mzLo:mzLo, mzHi:mzHi, dLo:dLo, dHi:dHi, mBl:mBl, mBh:mBh }};
+  // Native drift bin range for rawIM indexing (rawIM has nD_native entries)
+  var drStep = nD_native / nD;
+  var ndBl = Math.max(0, Math.floor(dBl * drStep));
+  var ndBh = Math.min(nD_native - 1, Math.floor((dBh + 1) * drStep) - 1);
+  return {{ mzLo:mzLo, mzHi:mzHi, drLo:drLo, drHi:drHi,
+           dBl:dBl, dBh:dBh, ndBl:ndBl, ndBh:ndBh, mBl:mBl, mBh:mBh }};
 }}
 
 // === Apply 2D heatmap (reads ONLY 2D controls) ===
@@ -674,16 +693,49 @@ function updateMarginals() {{
   var preset = JSON.parse(document.getElementById('smdrift').value);
   if (preset.method !== 'raw') dp = smooth1D(dp, preset);
 
-  // m/z: raw _ms.txt in visible range, with noise
-  var iLo = bsearch(msMz, vr.mzLo), iHi = bsearch(msMz, vr.mzHi);
-  if (iHi >= msMz.length) iHi = msMz.length - 1;
-  var mx = msMz.slice(iLo, iHi + 1);
-  var my = msI.slice(iLo, iHi + 1);
+  // m/z: drift-zoom-aware profile from rawIM (stored at 4dp = 0.0001 Da, finer than the
+  // native ~8 mDa Agilent / ~12 mDa Waters TOF sample spacing).
+  // ADAPTIVE m/z grid step: chosen so the visible window has at most ~12k points
+  // (keeps profile rendering fast at wide zooms while preserving near-native
+  // resolution at narrow zooms). Native step floor = 0.0001 Da.
+  var _range = vr.mzHi - vr.mzLo;
+  var _niceSteps = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0];
+  var MZ_STEP = _niceSteps[_niceSteps.length - 1];
+  for (var _ni = 0; _ni < _niceSteps.length; _ni++) {{
+    if (_range / _niceSteps[_ni] <= 12000) {{ MZ_STEP = _niceSteps[_ni]; break; }}
+  }}
+  var nMz = Math.max(1, Math.ceil(_range / MZ_STEP) + 1);
+  var mx = new Array(nMz), my = new Array(nMz).fill(0);
+  for (var i = 0; i < nMz; i++) mx[i] = vr.mzLo + i * MZ_STEP;
+  for (var d = vr.ndBl; d <= vr.ndBh; d++) {{
+    var pts = rawIM[d];
+    if (!pts || pts.length === 0) continue;
+    var lo = 0, hi = pts.length - 1, i0 = pts.length;
+    while (lo <= hi) {{ var mid = (lo+hi) >> 1;
+      if (pts[mid][0] < vr.mzLo) lo = mid + 1; else {{ i0 = mid; hi = mid - 1; }} }}
+    for (var i = i0; i < pts.length && pts[i][0] <= vr.mzHi; i++) {{
+      var bi = Math.round((pts[i][0] - vr.mzLo) / MZ_STEP);
+      if (bi >= 0 && bi < nMz) my[bi] += pts[i][1];
+    }}
+  }}
   var ncut_m = parseFloat(document.getElementById('noisemz').value);
   if (ncut_m > 0 && my.length > 0) {{
     var pk = 0; for (var i = 0; i < my.length; i++) if (my[i] > pk) pk = my[i];
     var thr = pk * ncut_m / 100;
     my = my.map(function(v) {{ return v < thr ? 0 : v; }});
+  }}
+  // Apply MS display mode: stick (peak-picked) vs profile (raw)
+  var msmode = document.getElementById('msmode').value;
+  if (msmode === 'stick' && mx.length > 2) {{
+    var pk = 0; for (var i = 0; i < my.length; i++) if (my[i] > pk) pk = my[i];
+    var thr = pk * 0.001;  // 0.1% of local max — drop noise
+    var sx = [], sy = [];
+    for (var i = 1; i < my.length - 1; i++) {{
+      if (my[i] > thr && my[i] >= my[i-1] && my[i] >= my[i+1]) {{
+        sx.push(mx[i], mx[i], null); sy.push(0, my[i], null);
+      }}
+    }}
+    mx = sx; my = sy;
   }}
 
   // Single restyle — Plotly auto-scales axes (fixedrange removed)
@@ -703,6 +755,7 @@ document.getElementById('mzscale').onchange = apply2D;
 document.getElementById('noise2d').onchange = apply2D;
 document.getElementById('noisedrift').onchange = updateMarginals;
 document.getElementById('noisemz').onchange = updateMarginals;
+document.getElementById('msmode').onchange = updateMarginals;
 document.getElementById('cmap').onchange = apply2D;
 document.getElementById('smdrift').onchange = updateMarginals;
 document.getElementById('nbins').onchange = rebinFull;

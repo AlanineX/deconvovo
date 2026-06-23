@@ -22,7 +22,8 @@ def _plot_one_run(args: dict) -> dict:
         return result
     try:
         plot_im_data(im_file, ms_file, run_name, out_dir,
-                     pusher_us=args.get("pusher_us"))
+                     pusher_us=args.get("pusher_us"),
+                     config_path=args.get("config_path"))
         result["status"].append("IM")
     except Exception as e:
         result["status"].append(f"ERROR: {e}")
@@ -30,7 +31,8 @@ def _plot_one_run(args: dict) -> dict:
 
 
 def run(data_dir: Path, out_dir: Path, skip_existing: bool = False,
-        raw_dir: Path | None = None, n_workers: int = 8) -> None:
+        raw_dir: Path | None = None, n_workers: int = 8,
+        config_path: Path | None = None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ms_files = sorted(data_dir.glob("*_ms.txt"))
     print(f"  {len(ms_files)} runs")
@@ -64,6 +66,7 @@ def run(data_dir: Path, out_dir: Path, skip_existing: bool = False,
             "im_file": str(data_dir / f"{run_name}_im.txt"),
             "out_dir": str(out_dir),
             "pusher_us": pusher_cache.get(run_name),
+            "config_path": str(config_path) if config_path else None,
         })
 
     print(f"  Processing {len(run_args)} runs")
@@ -78,12 +81,16 @@ def main() -> None:
     parser.add_argument("-i", "--input", required=True)
     parser.add_argument("-o", "--output", required=True)
     parser.add_argument("--raw-dir", default=None)
+    parser.add_argument("--config", default=None,
+                        help="Path to custom imms_plot_config.json "
+                             "(defaults / presets / initial mz+drift ranges)")
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("-j", "--workers", type=int, default=8)
     args = parser.parse_args()
     run(Path(args.input).resolve(), Path(args.output).resolve(), args.skip_existing,
         raw_dir=Path(args.raw_dir).resolve() if args.raw_dir else None,
-        n_workers=args.workers)
+        n_workers=args.workers,
+        config_path=Path(args.config).resolve() if args.config else None)
 
 
 if __name__ == "__main__":

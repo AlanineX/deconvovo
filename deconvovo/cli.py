@@ -67,7 +67,8 @@ def _plot_one(args: dict) -> dict:
         return result
     try:
         plot_im_data(im_file, ms_file, run_name, out_dir,
-                     pusher_us=args.get("pusher_us"))
+                     pusher_us=args.get("pusher_us"),
+                     config_path=args.get("config_path"))
         result["status"].append("IM")
     except Exception as e:
         result["error"] = str(e)
@@ -106,6 +107,9 @@ def main() -> None:
                         help="Skip runs whose outputs already exist")
     parser.add_argument("--raw-dir", default=None,
                         help="Path to .raw directories (for drift time calibration)")
+    parser.add_argument("--config", default=None,
+                        help="Path to custom imms_plot_config.json "
+                             "(defaults / presets / initial mz+drift ranges)")
     parser.add_argument("-j", "--workers", type=int, default=8,
                         help="Number of parallel workers (default: 8)")
 
@@ -208,6 +212,8 @@ def main() -> None:
                     "run_name": rn,
                     "out_dir": str(out_dir),
                     "pusher_us": pusher_cache.get(rn),
+                    "config_path": str(Path(args.config).resolve())
+                        if args.config else None,
                 }, depends_on=deps)
 
     # Run DAG

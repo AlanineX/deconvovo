@@ -20,14 +20,21 @@ from plotly.subplots import make_subplots
 from scipy.signal import savgol_filter
 from scipy.ndimage import gaussian_filter
 
-def _load_plot_config() -> dict:
-    """Load imms_plot_config.json from config/ dir. Returns defaults if missing."""
+def _load_plot_config(config_path: Path | str | None = None) -> dict:
+    """Load imms_plot_config.json. Falls back to defaults if missing.
+
+    If `config_path` is given (absolute or relative), that file is used.
+    Otherwise looks for `config/imms_plot_config.json` in the repo / frozen bundle.
+    """
     import sys
-    if getattr(sys, 'frozen', False):
-        base = Path(sys._MEIPASS)
+    if config_path is not None:
+        cfg_path = Path(config_path).expanduser().resolve()
     else:
-        base = Path(__file__).parent.parent
-    cfg_path = base / "config" / "imms_plot_config.json"
+        if getattr(sys, 'frozen', False):
+            base = Path(sys._MEIPASS)
+        else:
+            base = Path(__file__).parent.parent
+        cfg_path = base / "config" / "imms_plot_config.json"
     default = {
         "defaults": {
             "smooth_2d": {"method": "raw"}, "scale": "1",
@@ -56,7 +63,8 @@ def _load_plot_config() -> dict:
 
 
 def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Path,
-                  n_mz_bins: int | None = None, pusher_us: float | None = None):
+                  n_mz_bins: int | None = None, pusher_us: float | None = None,
+                  config_path: Path | str | None = None):
     """Interactive 2D IM-MS viewer with linked marginals.
 
     Layout:
@@ -75,8 +83,8 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     from plotly.subplots import make_subplots
     import json as _json
 
-    # Load config
-    cfg = _load_plot_config()
+    # Load config (custom path overrides the repo default)
+    cfg = _load_plot_config(config_path)
     dfl = cfg["defaults"]
     prs = cfg["presets"]
     fig_cfg = cfg.get("figure", {})
@@ -244,6 +252,18 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
                      autorangeoptions=dict(include=[0]), tickfont=tkfs, **ax, **go_)
     fig.update_xaxes(row=1, col=2, showticklabels=False, **ax)
     fig.update_yaxes(row=1, col=2, showticklabels=False, **ax)
+
+    # Optional initial-view ranges from config (interactive zoom still works
+    # — these just set the starting m/z and drift-time windows).
+    iv = cfg.get("initial_view") or {}
+    if iv.get("mz_range"):
+        lo, hi = iv["mz_range"]
+        fig.update_xaxes(row=1, col=2, range=[lo, hi])
+        fig.update_xaxes(row=2, col=2, range=[lo, hi])
+    if iv.get("drift_range"):
+        lo, hi = iv["drift_range"]
+        fig.update_yaxes(row=1, col=1, range=[lo, hi])
+        fig.update_yaxes(row=1, col=2, range=[lo, hi])
     fig.update_xaxes(row=2, col=1, showticklabels=False, fixedrange=True, showline=False, showgrid=False)
     fig.update_yaxes(row=2, col=1, showticklabels=False, fixedrange=True, showline=False, showgrid=False)
 

@@ -61,3 +61,46 @@ python -m deconvovo.cli -i data/ -o output/ \
     --mass-bins 10 \
     -j 8
 ```
+
+
+## Command line for me
+
+Uses the custom config at `/home/alan/Downloads/carter_0623/imms_plot_config.json`
+(starting m/z 350–1250, drift 0–15 ms, PuBu colormap, 0.3 σ 2D Gaussian smooth,
+0.5 % 2D noise floor, 6400 m/z bins). Edit that file to change any default —
+the dropdowns in the HTML still work for runtime tuning.
+
+One-shot — convert + viewers in a single invocation:
+
+```bash
+python -m deconvovo.cli \
+    -i /home/alan/Downloads/carter_0623/Myoglobin_Water \
+    -o /home/alan/Downloads/carter_0623/Myoglobin_Water_output \
+    --config /home/alan/Downloads/carter_0623/imms_plot_config.json \
+    --skip-deconv \
+    -j 8
+```
+
+Or step-by-step if you want to inspect the intermediate text files:
+
+```bash
+# 1. Convert .raw to text
+python -m deconvovo.waters_convert \
+    /home/alan/Downloads/carter_0623/Myoglobin_Water \
+    -o /home/alan/Downloads/carter_0623/Myoglobin_Water_converted
+
+# 2. Generate interactive HTML viewers (custom config)
+python -m deconvovo.imms_plot \
+    -i /home/alan/Downloads/carter_0623/Myoglobin_Water_converted \
+    -o /home/alan/Downloads/carter_0623/Myoglobin_Water_html \
+    --raw-dir /home/alan/Downloads/carter_0623/Myoglobin_Water \
+    --config /home/alan/Downloads/carter_0623/imms_plot_config.json \
+    -j 8
+
+# 3. (optional) CCS calibration + analyte CCS
+python -m deconvovo.imms_ccs_calibrate \
+    -o /home/alan/Downloads/carter_0623/Myoglobin_Water_ccs \
+    --data-dir /home/alan/Downloads/carter_0623/Myoglobin_Water \
+    --calibrant-csv config/calibrants_tunemix.csv \
+    --analyte-csv config/analytes_adp.csv
+```

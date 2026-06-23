@@ -5,4 +5,4 @@ import os as _os
 # The GUI explicitly switches to its own backend after PySide6 is loaded.
 _os.environ.setdefault("MPLBACKEND", "Agg")
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"

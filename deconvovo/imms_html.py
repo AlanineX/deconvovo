@@ -87,12 +87,29 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     cfg = _load_plot_config(config_path)
     dfl = cfg["defaults"]
     prs = cfg["presets"]
+
+    def _as_float(value, fallback=0.0):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    if _as_float(dfl.get("noise_2d")) <= 0 < _as_float(dfl.get("denoise")):
+        first_positive_noise = next(
+            (_as_float(v) for v in prs.get("noise_2d", []) if _as_float(v) > 0),
+            0.5,
+        )
+        dfl["noise_2d"] = first_positive_noise
+
     fig_cfg = cfg.get("figure", {})
     FS = fig_cfg.get("font_size", 20)
     FIG_W = fig_cfg.get("width", 1190)
     FIG_H = fig_cfg.get("height", 680)
     if n_mz_bins is None:
         n_mz_bins = dfl.get("mz_bins", 800)
+    # "native" = use as many m/z bins as the data actually supports — counted
+    # below from the unique m/z values in the IM data, capped to keep heatmap
+    # serialization tractable.
 
     # --- Load IM data ---
     data = np.loadtxt(str(im_file))
@@ -117,10 +134,29 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
             out_dir / f"{run_name}_2d_imms.csv", index=False, float_format="%.4f")
 
     # --- Build heatmap grid ---
+    # The heatmap m/z range is CLIPPED to initial_view.mz_range when set, so
+    # the same N bins serve only the visible window — 5x sharper than spreading
+    # them over the full data range. Out-of-window samples are dropped from the
+    # heatmap but stay in `rawIM` for client-side re-binning if the user zooms
+    # to a wider window.
     mz_lo, mz_hi = float(mz_nz.min()), float(mz_nz.max())
-    hm_mz_range = (mz_lo, mz_hi)
+    _iv_pre = cfg.get("initial_view") or {}
+    if _iv_pre.get("mz_range"):
+        _hm_lo, _hm_hi = _iv_pre["mz_range"]
+        hm_mz_range = (max(mz_lo, float(_hm_lo)), min(mz_hi, float(_hm_hi)))
+        _hm_mask = (mz_nz >= hm_mz_range[0]) & (mz_nz <= hm_mz_range[1])
+    else:
+        hm_mz_range = (mz_lo, mz_hi)
+        _hm_mask = slice(None)
     n_drift = int(drift_nz.max()) + 1
 
+    # Native bin count = unique m/z values inside the heatmap m/z range, capped
+    # at 25 600 so the embedded heatmap stays under ~5 M cells × 8 bytes ≈ 40 MB
+    # JSON. Clipping first means "Native" is native at the visible scale, not
+    # diluted by samples outside the view.
+    n_mz_native = int(min(25600, max(200, len(np.unique(mz_nz[_hm_mask])))))
+    if isinstance(n_mz_bins, str) and n_mz_bins.lower() == "native":
+        n_mz_bins = n_mz_native
     mz_edges = np.linspace(hm_mz_range[0], hm_mz_range[1], n_mz_bins + 1)
     mz_centers = (mz_edges[:-1] + mz_edges[1:]) / 2
     heatmap = np.zeros((n_drift, n_mz_bins), dtype=np.float64)
@@ -164,6 +200,17 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
         pts.sort(key=lambda p: p[0])  # sort by m/z for fast range filtering
         _raw_im.append(pts)
 
+    # Native m/z sampling interval — the floor for the m/z panel's profile grid.
+    # Profile mode must NOT bin finer than this or the connecting line dips to
+    # zero between native samples and renders as a comb of spikes (looks like
+    # sticks). Use the 95th percentile of the within-peak sample spacing
+    # (diffs < 0.1 Da exclude the large inter-peak gaps); ×1.3 safety for the
+    # m/z-dependent growth of TOF sampling. Falls back to 0.01 Da.
+    _umz = np.unique(mz_nz)
+    _dmz = np.diff(_umz)
+    _dmz = _dmz[(_dmz > 0) & (_dmz < 0.1)]
+    native_mz_step = float(np.percentile(_dmz, 95) * 1.3) if len(_dmz) else 0.01
+
     # --- Raw drift profile ---
     drift_tic_raw = sub_raw.sum(axis=1)
 
@@ -199,25 +246,88 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     # m/z spectrum (bottom) — initial: profile trace (drift-summed, native resolution)
     # so first paint shows data even before any user interaction. updateMarginals()
     # replaces this whenever the user pans/zooms or toggles MS Mode.
+    #
+    # CLIP to the initial m/z view if set. Otherwise Plotly's y-axis autoscale
+    # uses the FULL trace's max (potentially a peak way outside the visible
+    # window — Myoglobin native at m/z 1953 falsely collapses visible 350–1250
+    # peaks to ~20% of the axis, looking like nothing is shown).
+    _iv = cfg.get("initial_view") or {}
+    _ms_mz_init = ms_mz
+    _ms_int_init = ms_int
+    if _iv.get("mz_range"):
+        _lo, _hi = _iv["mz_range"]
+        _mask = (ms_mz >= _lo) & (ms_mz <= _hi)
+        if _mask.any():
+            _ms_mz_init = ms_mz[_mask]
+            _ms_int_init = ms_int[_mask]
     fig.add_trace(go.Scatter(
-        x=ms_mz.tolist(), y=ms_int.tolist(), mode="lines",
+        x=_ms_mz_init.tolist(), y=_ms_int_init.tolist(), mode="lines",
         line=dict(color="#333", width=0.6), showlegend=False,
         hovertemplate="m/z: %{x:.4f}<br>I: %{y:.0f}<extra></extra>",
     ), row=2, col=2)
 
     # 2D heatmap (center) — initial: RAW (no smoothing)
+    # zsmooth controls Plotly's inter-cell interpolation:
+    #   "off"  -> False, each cell is a discrete pixel (crisp; best at high mz_bins)
+    #   "fast" -> bilinear interpolation
+    #   "best" -> bicubic interpolation (smooth but blurry for high-res data)
+    _render = dfl.get("render", "off")
+    _zsmooth = False if _render == "off" else _render
+    _zscale = dfl.get("z_scale", "log10")
+    _zpos = np.maximum(0, sub_raw)
+    if _zscale == "linear":
+        _z_init = _zpos; _z_title = "I"; _hover_z = "I: %{z:.0f}"
+    elif _zscale == "sqrt":
+        _z_init = np.sqrt(_zpos); _z_title = "√I"; _hover_z = "√I: %{z:.2f}"
+    elif _zscale == "cbrt":
+        _z_init = np.cbrt(_zpos); _z_title = "∛I"; _hover_z = "∛I: %{z:.2f}"
+    elif _zscale == "p4":
+        _z_init = np.power(_zpos, 0.25); _z_title = "I^¼"; _hover_z = "I^¼: %{z:.2f}"
+    elif _zscale == "p5":
+        _z_init = np.power(_zpos, 0.2); _z_title = "I^⅕"; _hover_z = "I^⅕: %{z:.2f}"
+    elif _zscale == "log2":
+        _z_init = np.log2(_zpos + 1); _z_title = "log₂(I+1)"; _hover_z = "log₂(I+1): %{z:.2f}"
+    else:  # log10
+        _z_init = np.log10(_zpos + 1); _z_title = "log₁₀(I+1)"; _hover_z = "log(I+1): %{z:.2f}"
+    # Resolve the default colormap to a Plotly scale. It may be a CUSTOM name
+    # (e.g. "W-Rainbow") defined in presets["colormap"] as a {name, scale} dict —
+    # Plotly wouldn't recognise the bare name. init applyAll() re-applies the
+    # dropdown's resolved scale on first paint regardless; this keeps the
+    # pre-JS frame correct too.
+    _default_cmap = dfl.get("colormap", "Viridis")
+    _default_scale = _default_cmap
+    for _cm in prs.get("colormap", []):
+        if isinstance(_cm, dict) and _cm.get("name") == _default_cmap:
+            _default_scale = _cm["scale"]
+            break
     fig.add_trace(go.Heatmap(
-        z=np.log10(sub_raw + 1), x=sub_mz, y=drift_bins,
-        colorscale=dfl.get("colormap", "Viridis"),
-        colorbar=dict(title=dict(text="log10(I+1)", side="top"),
+        z=_z_init, x=sub_mz, y=drift_bins,
+        colorscale=_default_scale,
+        colorbar=dict(title=dict(text=_z_title, side="top"),
                       len=0.76, y=0.62, thickness=22),
-        zsmooth="best",
-        hovertemplate="m/z: %{x:.2f}<br>Drift: %{y:.3f}<br>log(I+1): %{z:.2f}<extra></extra>",
+        zsmooth=_zsmooth,
+        hovertemplate=f"m/z: %{{x:.2f}}<br>Drift: %{{y:.3f}}<br>{_hover_z}<extra></extra>",
     ), row=1, col=2)
 
     # No Plotly dropdowns — all controls are HTML elements wired to JS
     cmaps = prs.get("colormap", ["Viridis", "Plasma", "Inferno", "Cividis",
                                     "Hot", "Turbo", "Electric", "Bluered"])
+
+    def _cmap_label(cm):
+        return str(cm.get("name", "")) if isinstance(cm, dict) else str(cm)
+
+    def _natural_sort_key(text: str):
+        import re
+        return [int(p) if p.isdigit() else p.lower()
+                for p in re.split(r"(\d+)", text)]
+
+    cmaps = sorted(
+        cmaps,
+        key=lambda cm: (
+            0 if _cmap_label(cm).startswith("W-") else 1,
+            _natural_sort_key(_cmap_label(cm)),
+        ),
+    )
 
     # =================================================================
     # Publication-quality styling
@@ -243,6 +353,12 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
                      title_font=tf, tickfont=tkf, **ax, **gm,
                      minor=dict(showgrid=True, gridwidth=0.3, gridcolor="#eee", griddash="dot"))
     fig.update_yaxes(row=2, col=2, rangemode="tozero",
+                     matches=None,   # un-share from yaxis3 (the empty corner,
+                                     # which would force this to [0, 1] and
+                                     # hide the m/z intensity spectrum)
+                     fixedrange=True,  # lock intensity to autoscale; users
+                                       # zoom the m/z panel along x only
+                                       # (matches the original behaviour)
                      title_text="Intensity", title_font=tf,
                      tickfont=tkfs, **ax, **go_)
     fig.update_yaxes(row=1, col=1, title_text=drift_label,
@@ -285,11 +401,19 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
             opts.append(f"<option value='{val}'{sel}>{label}</option>")
         return "\n      ".join(opts)
 
-    def _simple_options(values, default, fmt=str):
+    def _simple_options(values, default, fmt=None):
+        # When no custom fmt is given, fall back to the legacy m/z-scale label
+        # map (used by the Scale dropdown). When a fmt is given, trust it
+        # entirely — otherwise "sqrt" gets mis-labeled as "√ratio" in
+        # unrelated dropdowns (e.g. Intensity).
+        legacy = {"0": "Off", "sqrt": "&radic;ratio", "full": "ratio"}
         opts = []
         for v in values:
             sel = " selected" if str(v) == str(default) else ""
-            label = {"0": "Off", "sqrt": "&radic;ratio", "full": "ratio"}.get(str(v), fmt(v))
+            if fmt is not None:
+                label = fmt(v)
+            else:
+                label = legacy.get(str(v), str(v))
             opts.append(f'<option value="{v}"{sel}>{label}</option>')
         return "\n      ".join(opts)
 
@@ -299,11 +423,41 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     nfmt = lambda v: "Off" if v == 0 else f"{v}%"
     noise2d_opts = _simple_options(prs.get("noise_2d", [0, 0.5, 1, 3, 5]),
                                     dfl.get("noise_2d", 0), nfmt)
+    # Cutoff Fade = off/hard threshold, or ramp half-width (% of max).
+    denoise_opts = _simple_options(prs.get("denoise", ["off", 1, 5, 10, 20, 50]),
+                                    dfl.get("denoise", 5),
+                                    lambda v: "Off" if str(v) == "off" else f"{v}%")
     noise_dr_opts = _simple_options(prs.get("noise_drift", [0, 0.5, 1, 3, 5]),
                                      dfl.get("noise_drift", 0), nfmt)
     noise_mz_opts = _simple_options(prs.get("noise_mz", [0, 0.5, 1, 3, 5]),
                                      dfl.get("noise_mz", 0), nfmt)
-    bins_opts = _simple_options(prs["mz_bins"], dfl["mz_bins"])
+    bins_opts = _simple_options(
+        prs["mz_bins"], dfl["mz_bins"],
+        lambda v: f"Native ({n_mz_native:,})" if str(v) == "native" else str(v),
+    )
+    # Intensity-transform dropdown (linear / sqrt / log10) — addresses the
+    # diagnosis's "log10 compresses strong peaks" point.
+    _zscale_labels = {"linear": "Linear (I)", "sqrt": "Sqrt (√I)", "cbrt": "Cbrt (∛I)",
+                      "p4": "4th root (I^¼)", "p5": "5th root (I^⅕)",
+                      "log2": "log₂(I+1)", "log10": "log₁₀(I+1)"}
+    zscale_opts = _simple_options(
+        prs.get("z_scale", ["linear", "sqrt", "cbrt", "p4", "p5", "log2", "log10"]),
+        dfl.get("z_scale", "sqrt"),
+        lambda v: _zscale_labels.get(str(v), str(v)),
+    )
+    # Render-mode dropdown: maps to Plotly Heatmap.zsmooth
+    _render_labels = {"off": "Crisp", "fast": "Smooth (fast)", "best": "Smooth (best)"}
+    render_opts = _simple_options(
+        prs.get("render", ["off", "fast", "best"]),
+        dfl.get("render", "off"),
+        lambda v: _render_labels.get(str(v), str(v)),
+    )
+    _ms_mode_labels = {"stick": "Sticks", "profile": "Profile"}
+    ms_mode_opts = _simple_options(
+        prs.get("ms_mode", ["stick", "profile"]),
+        dfl.get("ms_mode", "profile"),
+        lambda v: _ms_mode_labels.get(str(v), str(v)),
+    )
     dbins_opts = _simple_options(
         prs.get("drift_bins", ["native", 50, 100, 200]),
         dfl.get("drift_bins", "native"),
@@ -311,6 +465,26 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     )
     # Colormap options: resolve ALL names to arrays so Plotly.js doesn't need name lookup
     import plotly.colors as _pc
+
+    def _resolve_colorscale(name: str, n: int = 32):
+        """Plotly built-in first, then matplotlib by name; fall back to the
+        string so Plotly.js can try at runtime."""
+        try:
+            return _pc.get_colorscale(name)
+        except Exception:
+            pass
+        try:
+            try:
+                import matplotlib as _mpl
+                cmap = _mpl.colormaps[name]
+            except (KeyError, AttributeError):
+                import matplotlib.cm as _mcm
+                cmap = _mcm.get_cmap(name)
+            from matplotlib.colors import to_hex as _to_hex
+            return [[i / (n - 1), _to_hex(cmap(i / (n - 1)))] for i in range(n)]
+        except Exception:
+            return name
+
     cmap_opts_list = []
     for cm in cmaps:
         if isinstance(cm, dict):
@@ -318,10 +492,7 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
             label = cm["name"]
             sel = " selected" if cm["name"] == dfl["colormap"] else ""
         else:
-            try:
-                scale = _pc.get_colorscale(cm)
-            except Exception:
-                scale = cm  # fallback to string name
+            scale = _resolve_colorscale(cm)
             label = cm
             sel = " selected" if cm == dfl["colormap"] else ""
         val = _json.dumps(scale)
@@ -370,15 +541,21 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
   </div>
   <div class="ctl">
     <label>Scale:</label>
-    <select id="mzscale" title="How m/z axis smoothing scales relative to drift axis">
+    <select id="mzscale" title="Multiplier for m/z-axis 2D smoothing. Lower values make peaks thinner in m/z; higher values make them fatter in m/z.">
       {scale_opts}
     </select>
   </div>
   <span style="color:#ccc">|</span>
   <div class="ctl">
-    <label>2D Noise:</label>
-    <select id="noise2d">
+    <label>Noise Cutoff:</label>
+    <select id="noise2d" title="Threshold level as % of displayed max. 0% disables the cutoff.">
       {noise2d_opts}
+    </select>
+  </div>
+  <div class="ctl">
+    <label>Cutoff Fade:</label>
+    <select id="denoise" title="Off = hard cutoff at the Noise Cutoff threshold. Percent values set transition half-width as % of max. Needs Noise Cutoff &gt; 0 to take effect.">
+      {denoise_opts}
     </select>
   </div>
   <span style="color:#ccc">|</span>
@@ -398,8 +575,7 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
   <div class="ctl">
     <label>m/z Mode:</label>
     <select id="msmode" title="Sticks: peak picks shown as vertical lines (cleaner). Profile: raw continuous trace.">
-      <option value="stick">Sticks</option>
-      <option value="profile" selected>Profile</option>
+      {ms_mode_opts}
     </select>
   </div>
   <div class="ctl">
@@ -428,6 +604,18 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
       {cmap_opts}
     </select>
   </div>
+  <div class="ctl">
+    <label>Render:</label>
+    <select id="render" title="Crisp = pixel-sharp; Smooth = bilinear/bicubic interpolation">
+      {render_opts}
+    </select>
+  </div>
+  <div class="ctl">
+    <label>Intensity:</label>
+    <select id="zscale" title="Heatmap intensity transform. log₁₀ compresses dynamic range but accentuates low-level halos; Linear / Sqrt preserve relative peak heights better.">
+      {zscale_opts}
+    </select>
+  </div>
   <span style="color:#ccc">|</span>
   <button id="apply">Apply</button>
 </div>
@@ -453,22 +641,41 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
 <script>
 var H={hm_json},MZ={mz_json},DR={dr_json},msMz={ms_mz_j},msI={ms_int_j};
 var rawIM={raw_im_j};
-var hmMzLo={hm_mz_range[0]},hmMzHi={hm_mz_range[1]};
+// hmMzLo/hmMzHi = the heatmap m/z domain. HM_MZ_LO0/HI0 is the IMMUTABLE baked
+// domain; hmMzLo/hmMzHi are kept equal to it (never narrowed by zoom).
+var HM_MZ_LO0={hm_mz_range[0]},HM_MZ_HI0={hm_mz_range[1]};
+var hmMzLo=HM_MZ_LO0,hmMzHi=HM_MZ_HI0;
 var nD=H.length,nM=MZ.length;
 var nD_native=nD;
+var nM_native={n_mz_native};
+var nativeMzStep={native_mz_step};
 var pusherUs={pusher_us if pusher_us else 0};
 var axRatio=nM/nD;
 function ensureOdd(v){{v=Math.round(v);return v<3?3:(v%2===0?v+1:v);}}
 
 // --- Rebin heatmap from raw IM data (both axes) ---
+// Reads the CURRENT visible m/z range from the heatmap's x-axis so the same
+// nbMz bins serve only what the user is looking at — the dominant fix for
+// the "blurry overview" problem identified in the blur diagnosis doc. Zooming
+// then picking nbMz spends those bins on the current window, not the full
+// data range.
+// === Rebuild the heatmap H from immutable rawIM ===
+// ORDER-INDEPENDENCE: H is rebuilt over the FIXED baked m/z domain
+// [HM_MZ_LO0, HM_MZ_HI0] — NEVER the live zoom. So H is a pure function of
+// (nbMz, nbDr): it has no zoom history and cannot ratchet. Zooming changes only
+// the visible axis range; the heatmap is already at nbMz resolution across the
+// whole domain. hmMzLo/hmMzHi stay constant = the baked domain.
 function rebinFull() {{
-  var nbMz = parseInt(document.getElementById('nbins').value);
+  var mbVal = document.getElementById('nbins').value;
+  var nbMz = (mbVal === 'native') ? nM_native : parseInt(mbVal);
   var dbVal = document.getElementById('dbins').value;
   var nbDr = (dbVal === 'native') ? nD_native : parseInt(dbVal);
-  var mzStep = (hmMzHi - hmMzLo) / nbMz;
+  var mzLo = HM_MZ_LO0, mzHi = HM_MZ_HI0;   // immutable baked domain
+  hmMzLo = mzLo; hmMzHi = mzHi;
+  var mzStep = (mzHi - mzLo) / nbMz;
   var drStep = nD_native / nbDr;
   var newMZ = new Array(nbMz);
-  for (var i = 0; i < nbMz; i++) newMZ[i] = hmMzLo + (i + 0.5) * mzStep;
+  for (var i = 0; i < nbMz; i++) newMZ[i] = mzLo + (i + 0.5) * mzStep;
   var newDR = new Array(nbDr);
   for (var i = 0; i < nbDr; i++) {{
     var binCenter = (i + 0.5) * drStep;
@@ -482,7 +689,7 @@ function rebinFull() {{
     for (var dd = dLo; dd < dHi; dd++) {{
       var pts = rawIM[dd];
       for (var i = 0; i < pts.length; i++) {{
-        var bi = Math.floor((pts[i][0] - hmMzLo) / mzStep);
+        var bi = Math.floor((pts[i][0] - mzLo) / mzStep);
         if (bi >= 0 && bi < nbMz) row[bi] += pts[i][1];
       }}
     }}
@@ -494,7 +701,12 @@ function rebinFull() {{
 }}
 var figData={fig_json};
 var P=document.getElementById('plot');
-Plotly.newPlot(P,figData.data,figData.layout,{{responsive:true}});
+Plotly.newPlot(P,figData.data,figData.layout,{{responsive:true}}).then(function(){{
+  // One-shot render so the FIRST paint already reflects the default smoothing /
+  // noise / intensity controls. Without this the baked traces are raw and the
+  // heatmap visibly "jumps" the first time any control is touched.
+  applyAll();
+}});
 
 // --- Savitzky-Golay in JS (fits polynomial to sliding window) ---
 function sgSmooth1D(y,w,ord){{
@@ -625,7 +837,22 @@ function smooth2D(h, preset) {{
          : (sm === 'sqrt') ? Math.sqrt(axRatio)
          : parseFloat(sm);  // '1' → 1, '2' → 2
   if (preset.method === 'gaussian') {{
-    return gaussSmooth2D(h, preset.sigma, preset.sigma * sf);
+    // PHYSICAL-UNIT sigma: preset.sigma is the base m/z smoothing width in Da,
+    // and preset.sigma_dr is the drift width in ms. Scale multiplies the m/z
+    // width only, so the dropdown again changes the feature anisotropy:
+    // <1 = thinner in m/z, >1 = fatter in m/z. We convert to BIN sigma using
+    // the CURRENT heatmap geometry so the physical width remains stable when
+    // m/z bin count changes.
+    var nmHere = h[0] ? h[0].length : nM;
+    var binWidthDa = (hmMzHi - hmMzLo) / nmHere;
+    var baseMzSig = preset.sigma / binWidthDa;             // Da -> bins
+    var mzSig = baseMzSig * sf;                            // Scale affects m/z width
+    var drMsPerBin = pusherUs > 0 ? pusherUs / 1000
+                   : (DR.length > 1 ? Math.abs(DR[1] - DR[0]) : 1);
+    var drSig = (preset.sigma_dr != null)
+              ? preset.sigma_dr / drMsPerBin               // ms -> bins
+              : baseMzSig;                                 // fallback: unscaled drift width
+    return gaussSmooth2D(h, drSig, mzSig);
   }}
   if (preset.method === 'sg') {{
     var wM = ensureOdd(preset.w * sf);
@@ -645,8 +872,13 @@ function getVisibleRange() {{
   // xaxis2 = heatmap x (shared with xaxis4 = m/z panel x)
   if (layout.xaxis2 && layout.xaxis2.range) xr = layout.xaxis2.range.slice();
   if (layout.yaxis2 && layout.yaxis2.range) yr = layout.yaxis2.range.slice();
-  // Fallback to full range
-  var mzLo = xr ? xr[0] : MZ[0], mzHi = xr ? xr[1] : MZ[nM-1];
+  // Fallback to full range. CLAMP the m/z window to the heatmap domain so the
+  // m/z marginal can never project rawIM peaks that lie outside what the heatmap
+  // shows (e.g. panning past the [350,1250] clip). This keeps the bottom panel
+  // and the 2D heatmap consistent.
+  var mzLo = xr ? Math.max(hmMzLo, xr[0]) : MZ[0];
+  var mzHi = xr ? Math.min(hmMzHi, xr[1]) : MZ[nM-1];
+  if (mzHi <= mzLo) {{ mzLo = MZ[0]; mzHi = MZ[nM-1]; }}
   var drLo = yr ? yr[0] : DR[0],  drHi = yr ? yr[1] : DR[nD-1];
   // current heatmap-bin indices in DR (drift)
   var dBl = 0, dBh = nD - 1;
@@ -667,27 +899,53 @@ function getVisibleRange() {{
 }}
 
 // === Apply 2D heatmap (reads ONLY 2D controls) ===
-// Order: noise threshold (on raw) → smooth → log transform
-// Noise BEFORE smoothing so the boundary gets blurred (no rectangular artifacts)
+// Order: smooth → noise threshold → intensity transform.
+// SMOOTH FIRST (was: noise-then-smooth) so that thresholding doesn't leave
+// soft halos around clipped regions — the blur diagnosis identified the old
+// order as a "softened edges around thresholded regions" contributor.
 function apply2D() {{
   var preset = JSON.parse(document.getElementById('sm2d').value);
   var ncut = parseFloat(document.getElementById('noise2d').value);
   var cmap = JSON.parse(document.getElementById('cmap').value);
-  // 1. Noise threshold on raw data
-  var src = H;
+  var renderVal = document.getElementById('render').value;
+  var zsmooth = (renderVal === 'off') ? false : renderVal;
+  var zmode = document.getElementById('zscale').value;  // "linear"/"sqrt"/"log10"
+  // 1. Smooth the raw heatmap first
+  var sm = smooth2D(H, preset);
+  // 2. Intensity transform → DISPLAY space (this is what the colormap sees).
+  var transform, title;
+  if (zmode === 'linear')      {{ transform = function(v){{ return Math.max(0, v); }}; title = 'I'; }}
+  else if (zmode === 'sqrt')   {{ transform = function(v){{ return Math.sqrt(Math.max(0, v)); }}; title = '√I'; }}
+  else if (zmode === 'cbrt')   {{ transform = function(v){{ return Math.cbrt(Math.max(0, v)); }}; title = '∛I'; }}
+  else if (zmode === 'p4')     {{ transform = function(v){{ return Math.pow(Math.max(0, v), 0.25); }}; title = 'I^¼'; }}
+  else if (zmode === 'p5')     {{ transform = function(v){{ return Math.pow(Math.max(0, v), 0.2); }}; title = 'I^⅕'; }}
+  else if (zmode === 'log2')   {{ transform = function(v){{ return Math.log2(Math.max(0, v) + 1); }}; title = 'log₂(I+1)'; }}
+  else /* log10 */             {{ transform = function(v){{ return Math.log10(Math.max(0, v) + 1); }}; title = 'log₁₀(I+1)'; }}
+  var z = sm.map(function(r) {{ return r.map(transform); }});
+  // 3. Cutoff in DISPLAY space (on the transformed values the colormap shows).
+  // Two connected but independent controls:
+  //    "Noise Cutoff" = threshold level T (% of displayed max — where the cut sits)
+  //    "Cutoff Fade"  = off/hard step, or ramp half-width S (% of displayed max)
+  // Transfer: weight ramps 0→1 across [T−S, T+S], times the display value.
+  //   Fade Off → S = 0 → hard step at T (sharp)
+  //   S large → wider gradual fade
   if (ncut > 0) {{
-    var mx = 0;
-    for (var d = 0; d < nD; d++) for (var m = 0; m < nM; m++) if (H[d][m] > mx) mx = H[d][m];
-    var thr = mx * ncut / 100;
-    src = H.map(function(r) {{ return r.map(function(v) {{ return v < thr ? 0 : v; }}); }});
+    var denoiseMode = document.getElementById('denoise').value;
+    var sPct = (denoiseMode === 'off') ? 0 : parseFloat(denoiseMode);
+    var zmax = 0;
+    for (var d = 0; d < z.length; d++) for (var m = 0; m < z[d].length; m++)
+      if (z[d][m] > zmax) zmax = z[d][m];
+    var T = zmax * ncut / 100, S = zmax * (sPct > 0 ? sPct : 0) / 100;
+    var dfn;
+    if (S <= 0) {{ dfn = function(v){{ return v < T ? 0 : v; }}; }}        // hard step
+    else {{ var lo = T - S, span = 2 * S;
+      dfn = function(v){{ var w = (v - lo) / span; w = w < 0 ? 0 : (w > 1 ? 1 : w); return v * w; }}; }}
+    z = z.map(function(r) {{ return r.map(dfn); }});
   }}
-  // 2. Smooth (blurs the noise boundary edges)
-  var sm = smooth2D(src, preset);
-  // 3. Log transform
-  var z = sm.map(function(r) {{ return r.map(function(v) {{
-    return Math.log10(Math.max(0, v) + 1);
-  }}); }});
-  Plotly.restyle(P, {{z:[z], x:[MZ], y:[DR], colorscale:[cmap]}}, {HM_IDX});
+  // Colorbar title rides on the heatmap trace (per-trace colorbar, NOT a
+  // layout coloraxis) so it must be set via restyle, not relayout.
+  Plotly.restyle(P, {{z:[z], x:[MZ], y:[DR], colorscale:[cmap], zsmooth:[zsmooth],
+    'colorbar.title.text':[title]}}, {HM_IDX});
 }}
 
 // === Binary search on sorted array ===
@@ -724,6 +982,11 @@ function updateMarginals() {{
   for (var _ni = 0; _ni < _niceSteps.length; _ni++) {{
     if (_range / _niceSteps[_ni] <= 12000) {{ MZ_STEP = _niceSteps[_ni]; break; }}
   }}
+  // Floor the grid step at the native sampling interval. A FINER grid injects
+  // zeros between native samples, so the connected profile line collapses to a
+  // comb of spikes (which looked like sticks). With the floor, profile mode
+  // draws true smooth peak humps; stick mode peak-picks from the same profile.
+  if (MZ_STEP < nativeMzStep) MZ_STEP = nativeMzStep;
   var nMz = Math.max(1, Math.ceil(_range / MZ_STEP) + 1);
   var mx = new Array(nMz), my = new Array(nMz).fill(0);
   for (var i = 0; i < nMz; i++) mx[i] = vr.mzLo + i * MZ_STEP;
@@ -744,22 +1007,47 @@ function updateMarginals() {{
     var thr = pk * ncut_m / 100;
     my = my.map(function(v) {{ return v < thr ? 0 : v; }});
   }}
+  // Peak of the m/z window BEFORE stick conversion — drives the empty-window
+  // guard below (a zoom into an m/z gap with no signal otherwise collapses
+  // yaxis4's tozero autorange to ~[0,0] and the panel renders blank).
+  var _mzPeak = 0; for (var i = 0; i < my.length; i++) if (my[i] > _mzPeak) _mzPeak = my[i];
   // Apply MS display mode: stick (peak-picked) vs profile (raw)
   var msmode = document.getElementById('msmode').value;
   if (msmode === 'stick' && mx.length > 2) {{
     var pk = 0; for (var i = 0; i < my.length; i++) if (my[i] > pk) pk = my[i];
-    var thr = pk * 0.001;  // 0.1% of local max — drop noise
+    var thr = pk * 0.01;  // 1% of in-window max — keeps real peaks, drops shoulders
+    // Local-max window ≈ one peak WIDTH (~0.08 Da), NOT the inter-peak spacing.
+    // (The grid is now floored at the native sampling so the profile is smooth —
+    // no comb — so a narrow window finds one stick per real peak without the old
+    // over-wide ±0.5 Da window that merged adjacent isotopes into a single stick.)
+    var win = Math.max(2, Math.round(0.08 / MZ_STEP));
     var sx = [], sy = [];
-    for (var i = 1; i < my.length - 1; i++) {{
-      if (my[i] > thr && my[i] >= my[i-1] && my[i] >= my[i+1]) {{
-        sx.push(mx[i], mx[i], null); sy.push(0, my[i], null);
+    for (var i = win; i < my.length - win; i++) {{
+      if (my[i] <= thr) continue;
+      var isMax = true;
+      for (var j = i - win; j <= i + win; j++) {{
+        if (j !== i && my[j] > my[i]) {{ isMax = false; break; }}
       }}
+      if (isMax) {{ sx.push(mx[i], mx[i], null); sy.push(0, my[i], null); }}
     }}
     mx = sx; my = sy;
   }}
 
   // Single restyle — Plotly auto-scales axes (fixedrange removed)
   Plotly.restyle(P, {{x: [dp, mx], y: [DR, my]}}, [{DRIFT_IDX}, {MZ_IDX}]);
+  // Empty-window guard: keep the m/z panel visible (with a sane fallback range)
+  // instead of collapsing to a degenerate axis. Only relayout on a state CHANGE,
+  // and set a flag so our own relayout doesn't re-trigger the handler (no loop).
+  setMzPanelGuard(_mzPeak > 0);
+}}
+var _mzGuardState = null, _guardingY = false;
+function setMzPanelGuard(hasSignal) {{
+  if (_mzGuardState === hasSignal) return;  // no transition → nothing to do
+  _mzGuardState = hasSignal;
+  _guardingY = true;
+  var p = hasSignal ? Plotly.relayout(P, {{'yaxis4.autorange': true}})
+                    : Plotly.relayout(P, {{'yaxis4.range': [0, 1]}});
+  p.then(function() {{ _guardingY = false; }});
 }}
 
 // === Master apply (called by Apply button) ===
@@ -773,10 +1061,13 @@ document.getElementById('apply').onclick = applyAll;
 document.getElementById('sm2d').onchange = apply2D;
 document.getElementById('mzscale').onchange = apply2D;
 document.getElementById('noise2d').onchange = apply2D;
+document.getElementById('denoise').onchange = apply2D;
 document.getElementById('noisedrift').onchange = updateMarginals;
 document.getElementById('noisemz').onchange = updateMarginals;
 document.getElementById('msmode').onchange = updateMarginals;
 document.getElementById('cmap').onchange = apply2D;
+document.getElementById('render').onchange = apply2D;
+document.getElementById('zscale').onchange = apply2D;
 document.getElementById('smdrift').onchange = updateMarginals;
 document.getElementById('nbins').onchange = rebinFull;
 document.getElementById('dbins').onchange = rebinFull;
@@ -827,10 +1118,14 @@ document.getElementById('exp2d').onclick = function() {{
     yaxis:Object.assign({{title:'{drift_label}',
       range: ySrc.range ? ySrc.range.slice() : null}}, ax)
   }};
-  // Deep-clone the heatmap trace with all current visual state
+  // Deep-clone the heatmap trace with all current visual state (incl. zsmooth)
+  // and the LIVE colorbar title (tracks the current intensity transform, not a
+  // hardcoded log10).
+  var _cbTitle = (hm.colorbar && hm.colorbar.title && hm.colorbar.title.text)
+               ? hm.colorbar.title.text : 'I';
   var trace = {{type:'heatmap', z:hm.z, x:hm.x, y:hm.y,
-    colorscale:hm.colorscale, zsmooth:'best',
-    colorbar:{{title:{{text:'log\u2081\u2080(I+1)', side:'top'}}, thickness:22}},
+    colorscale:hm.colorscale, zsmooth:hm.zsmooth,
+    colorbar:{{title:{{text:_cbTitle, side:'top'}}, thickness:22}},
     hovertemplate:hm.hovertemplate}};
   Plotly.newPlot(tmpDiv, [trace], lay).then(function() {{
     return Plotly.toImage(tmpDiv, {{format:'png', width:lo.width, height:lo.height, scale:3}});
@@ -905,6 +1200,7 @@ document.getElementById('expmz').onclick = function() {{
 // === Recompute marginals on any zoom/pan (rAF-debounced) ===
 var _rafId = 0;
 P.on('plotly_relayout', function(ed) {{
+  if (_guardingY) return;  // ignore the relayout our own empty-window guard fired
   cancelAnimationFrame(_rafId);
   _rafId = requestAnimationFrame(updateMarginals);
 }});
@@ -914,4 +1210,3 @@ P.on('plotly_relayout', function(ed) {{
 
     # Standalone drift profile removed — the 2D viewer's drift panel
     # serves this purpose with zoom-linked m/z filtering.
-

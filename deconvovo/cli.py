@@ -90,8 +90,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Waters IM-MS analysis pipeline with interactive 2D viewer.",
     )
-    parser.add_argument("-i", "--input", required=True,
-                        help="Input directory (.raw folders or _ms.txt/_im.txt text files)")
+    parser.add_argument("-i", "--input", nargs="+", required=True,
+                        help="A directory, OR a list of paths (shell globs work, "
+                             "e.g. /data/*_24H_*.raw). Each path may be a .raw "
+                             "directory, a _ms.txt file, or a parent directory.")
     parser.add_argument("-o", "--output", required=True, help="Output directory")
     parser.add_argument("--mass-range", type=float, nargs=2, default=None,
                         help="Mass range for deconvolution (Da)")
@@ -114,18 +116,51 @@ def main() -> None:
                         help="Number of parallel workers (default: 8)")
 
     args = parser.parse_args()
-    input_dir = Path(args.input).resolve()
     out_dir = Path(args.output).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Detect input type ---
-    ms_files = sorted(input_dir.glob("*_ms.txt"))
-    has_raw = any(
-        d.is_dir() and d.suffix.lower() == ".raw" for d in input_dir.iterdir()
-    ) if input_dir.is_dir() else False
+    # --- Resolve inputs: directory OR a list of .raw dirs / _ms.txt files ---
+    input_paths = [Path(p).resolve() for p in args.input]
+    raw_dirs: list[Path] = []
+    ms_files: list[Path] = []
+    if len(input_paths) == 1 and input_paths[0].is_dir() and \
+            input_paths[0].suffix.lower() != ".raw":
+        # Single directory — enumerate inside (legacy behaviour).
+        d = input_paths[0]
+        ms_files = sorted(d.glob("*_ms.txt"))
+        if not ms_files:
+            raw_dirs = sorted(
+                x for x in d.iterdir()
+                if x.is_dir() and x.suffix.lower() == ".raw"
+            )
+        input_dir = d
+    else:
+        # List of paths (typically a shell glob expansion).
+        for p in input_paths:
+            if p.is_dir() and p.suffix.lower() == ".raw":
+                raw_dirs.append(p)
+            elif p.is_dir():
+                ms_files.extend(p.glob("*_ms.txt"))
+                raw_dirs.extend(
+                    x for x in p.iterdir()
+                    if x.is_dir() and x.suffix.lower() == ".raw"
+                )
+            elif p.name.endswith("_ms.txt"):
+                ms_files.append(p)
+            elif p.name.endswith("_im.txt"):
+                ms = p.parent / p.name.replace("_im.txt", "_ms.txt")
+                if ms.exists():
+                    ms_files.append(ms)
+        ms_files = sorted(set(ms_files))
+        raw_dirs = sorted(set(raw_dirs))
+        # All inputs must share one parent so we can derive data_dir / raw_dir_path
+        parents = {p.parent for p in ms_files} | {p.parent for p in raw_dirs}
+        if len(parents) > 1:
+            sys.exit(f"inputs span multiple parent dirs: {sorted(parents)}")
+        input_dir = (next(iter(parents)) if parents else input_paths[0])
 
     raw_dir_path = Path(args.raw_dir).resolve() if args.raw_dir else None
-    needs_convert = not ms_files and has_raw
+    needs_convert = (not ms_files) and bool(raw_dirs)
 
     if needs_convert:
         converted_dir = out_dir / "_converted"
@@ -138,10 +173,6 @@ def main() -> None:
         wc = _get_wc()
         work_dir = wc.setup_work_dir(converted_dir)
 
-        raw_dirs = sorted(
-            d for d in input_dir.iterdir()
-            if d.is_dir() and d.suffix.lower() == ".raw"
-        )
         run_names = [d.stem for d in raw_dirs]
         print(f"=== Pipeline: {len(run_names)} runs, {args.workers} workers ===")
         print(f"Input: {input_dir}")

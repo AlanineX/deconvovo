@@ -19,7 +19,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       QT_QPA_PLATFORM: offscreen
       QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
@@ -35,15 +35,15 @@ jobs:
       - name: Install the tested Waters build dependencies
         run: python -m pip install -r portable_waters_convert/build/requirements.txt
       - name: Test conversion, viewer settings, workflow, and console
-        run: python -m pytest tests/test_waters_conversion.py tests/test_waters_viewer.py tests/test_waters_workflow.py tests/test_waters_workspace.py tests/test_waters_embedded_viewer.py -q
-      - name: Verify source RAW conversion and Windows laptop layout before freezing
+        run: python -m pytest tests/test_waters_conversion.py tests/test_waters_viewer.py tests/test_waters_workflow.py tests/test_waters_workspace.py tests/test_waters_embedded_viewer.py tests/test_waters_alignment.py tests/test_waters_exports.py tests/test_waters_csv_formula.py -q
+      - name: Verify source protein-to-ADP CCS and offline Windows laptop layout
         env:
           QT_QPA_PLATFORM: windows
         shell: pwsh
         run: |
-          python portable_waters_convert/build/launcher.py --smoke-test "$env:GITHUB_WORKSPACE\waters-build\source-validation"
+          python portable_waters_convert/build/launcher.py --smoke-test "$env:GITHUB_WORKSPACE\waters-build\source validation with spaces"
           $sourceSmokeExit = $LASTEXITCODE
-          $sourceReport = Get-Content waters-build\source-validation\native_smoke.json -Raw | ConvertFrom-Json
+          $sourceReport = Get-Content -LiteralPath "$env:GITHUB_WORKSPACE\waters-build\source validation with spaces\native_smoke.json" -Raw | ConvertFrom-Json
           $sourceReport | Select-Object status, console_chart_at_1280x800, error, final_screenshot | ConvertTo-Json -Depth 5
           if ($sourceSmokeExit -ne 0) { throw "Source application smoke test failed: $sourceSmokeExit" }
       - name: Upload source console screenshot and diagnostics
@@ -52,21 +52,35 @@ jobs:
         with:
           name: WatersConsole-win64-source-validation
           path: |
-            waters-build/source-validation/*.png
-            waters-build/source-validation/native_smoke.json
+            waters-build/source validation with spaces/*.png
+            waters-build/source validation with spaces/native_smoke.json
           if-no-files-found: ignore
           retention-days: 30
       - name: Build WatersConsole with complete real demo acquisitions
         run: python portable_waters_convert/build/build_native.py --output-dir waters-build
-      - name: Verify packaged real RAW conversion, offline export, and embedded GUI
+      - name: Verify packaged protein-to-ADP CCS, offline export, and embedded GUI
         env:
           QT_QPA_PLATFORM: windows
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath .\waters-build\dist\WatersConsole\WatersConsole.exe -ArgumentList '--smoke-test', "$PWD\waters-build\validation" -PassThru -Wait
-          $nativeReport = Get-Content waters-build\validation\native_smoke.json -Raw | ConvertFrom-Json
-          $nativeReport | Select-Object status, console_chart_at_1280x800, error, final_screenshot | ConvertTo-Json -Depth 5
-          if ($process.ExitCode -ne 0) { throw "Frozen application smoke test failed: $($process.ExitCode)" }
+          $bundle = Join-Path $env:GITHUB_WORKSPACE 'waters-build\dist\WatersConsole'
+          $spacedBundle = Join-Path $env:GITHUB_WORKSPACE 'waters-build\dist\WatersConsole with spaces'
+          $validation = Join-Path $env:GITHUB_WORKSPACE 'waters-build\native validation with spaces'
+          Move-Item -LiteralPath $bundle -Destination $spacedBundle
+          try {
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = Join-Path $spacedBundle 'WatersConsole.exe'
+            $startInfo.UseShellExecute = $false
+            $startInfo.ArgumentList.Add('--smoke-test')
+            $startInfo.ArgumentList.Add($validation)
+            $process = [System.Diagnostics.Process]::Start($startInfo)
+            $process.WaitForExit()
+            $nativeReport = Get-Content -LiteralPath (Join-Path $validation 'native_smoke.json') -Raw | ConvertFrom-Json
+            $nativeReport | Select-Object status, console_chart_at_1280x800, error, final_screenshot | ConvertTo-Json -Depth 5
+            if ($process.ExitCode -ne 0) { throw "Frozen application smoke test failed: $($process.ExitCode)" }
+          } finally {
+            Move-Item -LiteralPath $spacedBundle -Destination $bundle
+          }
       - name: Zip the folder application
         shell: pwsh
         run: Compress-Archive -Path waters-build\dist\WatersConsole -DestinationPath waters-build\WatersConsole-win64.zip
@@ -83,6 +97,6 @@ jobs:
           name: WatersConsole-win64-validation
           path: |
             waters-build/build_provenance.json
-            waters-build/validation/
-            waters-build/source-validation/
+            waters-build/native validation with spaces/
+            waters-build/source validation with spaces/
           retention-days: 30

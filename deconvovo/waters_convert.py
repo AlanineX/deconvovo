@@ -23,6 +23,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from deconvovo.paths import local_path
+
 IS_WINDOWS = sys.platform == "win32"
 
 
@@ -107,9 +109,14 @@ def convert_one_raw(
         raise ValueError("Choose at least one output; cannot skip both MS and IM")
     if func < 1 or ms_bin < 0 or im_bin < 0:
         raise ValueError("Function must be at least 1; bin widths must be nonnegative")
-    raw_dir, out_dir, work_dir = Path(raw_dir), Path(out_dir), Path(work_dir)
+    raw_dir, out_dir, work_dir = (local_path(path).resolve() for path in (raw_dir, out_dir, work_dir))
     if not raw_dir.is_dir():
         raise FileNotFoundError(f"Waters .raw folder not found: {raw_dir}")
+    if out_dir.is_relative_to(raw_dir) or any(
+        parent.suffix.lower() == ".raw" and parent.is_dir()
+        for parent in (out_dir, *out_dir.parents)
+    ):
+        raise ValueError("Choose an output directory outside the RAW acquisition")
     out_dir.mkdir(parents=True, exist_ok=True)
     run_name = raw_dir.stem
 
@@ -146,7 +153,7 @@ def convert_one_raw(
         for name, skipped in (("ms", skip_ms), ("im", skip_im)):
             cmd += ([f"--skip_{name}", "1"] if skipped else
                     [f"-{name[0]}", _to_native_path(requested[name].resolve())])
-        result = subprocess.run(cmd, capture_output=True, text=True,
+        result = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
                                 timeout=120, env=env)
         info = {"run_name": run_name, "raw_dir": str(raw_dir), "func": func,
                 "status": "complete" if result.returncode == 0
@@ -170,7 +177,7 @@ def collect_raw_dirs(inputs: list[str]) -> list[Path]:
     """Accept .raw directories or parent directories containing them."""
     results: list[Path] = []
     for item in inputs:
-        p = Path(item).resolve()
+        p = local_path(item).resolve()
         if p.is_dir() and p.suffix.lower() == ".raw":
             results.append(p)
         elif p.is_dir():
@@ -196,6 +203,8 @@ def setup_work_dir(out_dir: Path) -> Path:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     parser = argparse.ArgumentParser(
         description="Convert Waters MassLynx .raw to text (MS + IM) via CDCReader.",
     )
@@ -219,7 +228,12 @@ def main() -> None:
     raw_dirs = collect_raw_dirs(args.inputs)
     if not raw_dirs:
         parser.error("No .raw directories found; provide a complete .raw folder or its parent")
-    out_dir = Path(args.out_dir).resolve()
+    out_dir = local_path(args.out_dir).resolve()
+    if any(out_dir.is_relative_to(raw) for raw in raw_dirs) or any(
+        parent.suffix.lower() == ".raw" and parent.is_dir()
+        for parent in (out_dir, *out_dir.parents)
+    ):
+        parser.error("Choose an output directory outside the RAW acquisition")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     work_dir = setup_work_dir(out_dir)

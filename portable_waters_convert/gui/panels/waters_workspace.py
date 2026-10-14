@@ -14,7 +14,7 @@ from PySide6.QtCore import QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
-    QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+    QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMenu,
     QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter,
     QTabWidget, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
@@ -27,6 +27,7 @@ from gui.widgets.file_picker import DirPicker
 from gui.widgets.log_panel import LogPanel
 from gui.widgets.waters_viewer import WatersViewerWidget
 from gui.widgets.worker import Worker
+from deconvovo.paths import local_path
 
 
 def _bundle_root() -> Path:
@@ -115,6 +116,9 @@ class WatersWorkspacePanel(QWidget):
         self.queue_summary = QLabel("No inputs loaded")
         self.queue_summary.setProperty("chip", True)
         header.addWidget(self.queue_summary, alignment=Qt.AlignVCenter)
+        self.btn_convert = self._button("Convert only", self.convert_only)
+        self.btn_convert.setToolTip("Create MS/IM tables only. No viewer or CCS CSV is needed.")
+        header.addWidget(self.btn_convert)
         self.btn_run = QPushButton("Process && view")
         self.btn_run.setMinimumHeight(40)
         self.btn_run.setMinimumWidth(150)
@@ -128,6 +132,7 @@ class WatersWorkspacePanel(QWidget):
         self._build_acquisition_browser()
         self._build_plot_workspace()
         self._build_inspector()
+        self.tabs.currentChanged.connect(self._review_layout_changed)
         self.console_splitter.setStretchFactor(0, 0)
         self.console_splitter.setStretchFactor(1, 1)
         self.console_splitter.setStretchFactor(2, 0)
@@ -152,7 +157,7 @@ class WatersWorkspacePanel(QWidget):
         self.calibration_panel.pick_csv.path_changed.connect(self._update_ccs_cards)
         self.analyte_panel.pick_ana.path_changed.connect(self._update_ccs_cards)
         controls = [control for kind in (QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox)
-                    for control in self._settings_group.findChildren(kind)] + self.display_controls
+                    for control in self._settings_group.findChildren(kind)] + self.display_controls + self.range_controls
         for control in controls:
             signal = control.currentIndexChanged if isinstance(control, QComboBox) else control.toggled if isinstance(control, QCheckBox) else control.valueChanged
             signal.connect(lambda *_: self._refresh_view_timer.start())
@@ -264,7 +269,9 @@ class WatersWorkspacePanel(QWidget):
         plot_card.setStyleSheet("QGroupBox#watersPlotCard { margin-top: 0; padding: 12px; }")
         plot_layout = QVBoxLayout(plot_card)
         plot_layout.setContentsMargins(0, 0, 0, 0)
-        selected = QHBoxLayout()
+        self.selected_run_header = QWidget()
+        selected = QHBoxLayout(self.selected_run_header)
+        selected.setContentsMargins(0, 0, 0, 0)
         labels = QVBoxLayout()
         heading = QLabel("SELECTED ACQUISITION")
         heading.setProperty("eyebrow", True)
@@ -279,7 +286,22 @@ class WatersWorkspacePanel(QWidget):
         selected.addLayout(labels, 1)
         self.btn_viewer = self._button("Open in browser", self.open_viewer)
         selected.addWidget(self.btn_viewer)
-        plot_layout.addLayout(selected)
+        self.btn_export_view = QToolButton()
+        self.btn_export_view.setText("Export current view")
+        self.btn_export_view.setProperty("secondary", True)
+        self.btn_export_view.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.btn_export_view)
+        for text, key in (
+            ("Full plot PNG", "full_png"), ("2D PNG", "heatmap_png"),
+            ("m/z PNG", "mz_png"), ("Drift PNG", "drift_png"),
+            ("2D CSV", "heatmap_csv"), ("m/z CSV", "mz_csv"), ("Drift CSV", "drift_csv"),
+        ):
+            action = menu.addAction(text)
+            action.triggered.connect(lambda _checked=False, kind=key: self.export_current_view(kind))
+        self.btn_export_view.setMenu(menu)
+        self.btn_export_view.setToolTip("Export the current zoom, bins, scaling, and filters. The 2D CSV contains displayed transformed values.")
+        selected.addWidget(self.btn_export_view)
+        plot_layout.addWidget(self.selected_run_header)
         self.tabs = QTabWidget()
         self.viewer_widget = WatersViewerWidget(self)
         self.viewer_widget.btn_browser.hide()  # the selected-run header owns this action
@@ -289,6 +311,7 @@ class WatersWorkspacePanel(QWidget):
         column.addWidget(plot_card, 1)
 
         output = QGroupBox("Batch outputs")
+        self.output_card = output
         output_layout = QVBoxLayout(output)
         output_layout.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
@@ -356,6 +379,38 @@ class WatersWorkspacePanel(QWidget):
             grid.addWidget(control, (i // 2) * 2 + 1, i % 2)
         display.addLayout(grid)
         column.addWidget(self.display_group)
+
+        self.range_group = QGroupBox("Axis ranges")
+        ranges = QGridLayout(self.range_group)
+        ranges.setContentsMargins(0, 0, 0, 0)
+        ranges.setHorizontalSpacing(10)
+        ranges.setVerticalSpacing(6)
+        self.range_controls = []
+        for axis, (check, lo, hi, caption) in enumerate((
+            (self.viewer_panel.chk_mz_range, self.viewer_panel.spin_mz_min, self.viewer_panel.spin_mz_max, "X · m/z"),
+            (self.viewer_panel.chk_drift_range, self.viewer_panel.spin_drift_min, self.viewer_panel.spin_drift_max, "Y · drift time (ms)"),
+        )):
+            for form in self._settings_group.findChildren(QFormLayout):
+                if form.getWidgetPosition(check)[0] >= 0:
+                    removed = form.takeRow(check)
+                    field = removed.fieldItem.layout() if removed.fieldItem else None
+                    if field:
+                        for item in range(field.count()):
+                            widget = field.itemAt(item).widget()
+                            if isinstance(widget, QLabel):
+                                widget.hide()
+                    break
+            check.setText(caption)
+            ranges.addWidget(check, axis * 3, 0, 1, 2)
+            for side, (spin, text) in enumerate(((lo, "Minimum"), (hi, "Maximum"))):
+                label = QLabel(text)
+                label.setProperty("controlLabel", True)
+                ranges.addWidget(label, axis * 3 + 1, side)
+                spin.setMinimumWidth(0)
+                spin.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+                ranges.addWidget(spin, axis * 3 + 2, side)
+            self.range_controls.extend((check, lo, hi))
+        column.addWidget(self.range_group)
 
         self.ccs_card = QGroupBox("Calibration + analytes")
         ccs = QVBoxLayout(self.ccs_card)
@@ -460,33 +515,58 @@ class WatersWorkspacePanel(QWidget):
         row.addWidget(self.btn_ccs)
         page.addLayout(row)
         self.ccs_editors = QTabWidget()
-        for panel in (self.calibration_panel, self.analyte_panel):
+        for panel, caption in (
+            (self.calibration_panel, "Calibrant sheet"),
+            (self.analyte_panel, "Analyte sheet"),
+        ):
             for picker in (panel.pick_data, panel.pick_out):
                 picker.hide()
             panel.combo_method.hide()
             panel.btn_run.hide()
             panel.progress.hide()
-            for label in panel.findChildren(QLabel, options=Qt.FindDirectChildrenOnly):
-                if label.property("title") or label.property("subtitle") or label.text() == "Method:":
-                    label.hide()
-            panel.setMinimumHeight(400)
-            splitter = panel.findChild(QSplitter)
-            if splitter:
-                splitter.setOrientation(Qt.Vertical)
-                splitter.setSizes([150, 250])
             for picker in panel.findChildren(DirPicker):
                 picker.line.setMinimumWidth(0)
+            sheet = QWidget()
+            sheet_layout = QVBoxLayout(sheet)
+            sheet_layout.setContentsMargins(0, 4, 0, 0)
+            panel.sheet_tabs.removeTab(panel.sheet_tabs.indexOf(panel.table))
+            csv_picker = panel.pick_csv if panel is self.calibration_panel else panel.pick_ana
+            sheet_layout.addWidget(csv_picker)
+            sheet_layout.addWidget(panel.table, 1)
+            panel.table.show()
+            sheet_layout.addWidget(panel.lbl_status)
+            self.ccs_editors.addTab(sheet, caption)
         self.analyte_panel.pick_cal.hide()
-        self.ccs_editors.addTab(self.calibration_panel, "Calibrants && curve")
-        self.ccs_editors.addTab(self.analyte_panel, "Analytes && results")
-        drift_tabs = next(tab for tab in self.calibration_panel.findChildren(QTabWidget)
-                          if tab.indexOf(self.calibration_panel.plot_drift) >= 0)
-        drift_index = drift_tabs.indexOf(self.calibration_panel.plot_drift)
-        drift_tabs.removeTab(drift_index)
+        self.calibration_panel.sheet_tabs.removeTab(self.calibration_panel.sheet_tabs.indexOf(self.calibration_panel.plot_drift))
         self.drift_scroll = self._scroll(self.calibration_panel.plot_drift)
-        drift_tabs.insertTab(drift_index, self.drift_scroll, "Drift Profiles")
+        for widget, caption in (
+            (self.calibration_panel.plot_cal, "Calibration curve"),
+            (self.drift_scroll, "Drift profiles"),
+            (self.calibration_panel.summary_table, "Calibrant results"),
+            (self.analyte_panel.summary_table, "Analyte results"),
+        ):
+            self.ccs_editors.addTab(widget, caption)
+        self.calibration_panel.hide()
+        self.analyte_panel.hide()
         page.addWidget(self.ccs_editors, 1)
-        self.tabs.addTab(self._scroll(content), "CCS review")
+        self.tabs.addTab(content, "CCS review")
+
+    def _review_layout_changed(self, index):
+        """Use the workbench width for CSV editing; restore the console for viewing."""
+        if index == 1:
+            self._viewer_splitter_sizes = self.console_splitter.sizes()
+            self.browser_panel.hide()
+            self.inspector_scroll.hide()
+            self.selected_run_header.hide()
+            self.output_card.hide()
+        else:
+            self.browser_panel.show()
+            self.inspector_scroll.show()
+            self.selected_run_header.show()
+            self.output_card.show()
+            sizes = getattr(self, "_viewer_splitter_sizes", None)
+            if sizes:
+                self.console_splitter.setSizes(sizes)
 
     def show_ccs_review(self, index=0):
         self.tabs.setCurrentIndex(1)
@@ -566,6 +646,15 @@ class WatersWorkspacePanel(QWidget):
         self._worker.error.connect(self._on_export_error)
         self._worker.start()
         return destination
+
+    def export_current_view(self, kind):
+        try:
+            self._refresh_view_timer.stop()
+            self.viewer_widget.apply_config(self.viewer_panel.current_config())
+            return self.viewer_widget.export_current(kind)
+        except (OSError, ValueError) as error:
+            self._problem(str(error))
+            return None
 
     @staticmethod
     def _do_export(record, config_path, destination, source):
@@ -796,6 +885,7 @@ class WatersWorkspacePanel(QWidget):
     def _update_open_buttons(self):
         index = self.run_table.currentRow()
         self.btn_viewer.setEnabled(0 <= index < len(self._rows) and bool(self._rows[index].get("viewer")))
+        self.btn_export_view.setEnabled(not self._busy and 0 <= index < len(self._rows) and bool(self._rows[index].get("viewer")))
         self.btn_export.setEnabled(not self._busy and 0 <= index < len(self._rows) and all(self._rows[index].get(key) for key in ("ms", "im")))
         self.btn_folder.setEnabled(bool(self.pick_out.path()) and Path(self.pick_out.path()).is_dir())
 
@@ -820,6 +910,9 @@ class WatersWorkspacePanel(QWidget):
     def process_and_view(self):
         self._start(html=True, ccs=self.chk_ccs.isChecked())
 
+    def convert_only(self):
+        self._start(html=False, ccs=False)
+
     def calibrate_and_apply(self):
         self._start(html=False, ccs=True)
 
@@ -829,11 +922,8 @@ class WatersWorkspacePanel(QWidget):
         self._log.log(message, "error")
 
     def _snapshot_table(self, panel, picker, filename, required):
-        frame = panel.table.to_dataframe()
-        missing = required - set(frame.columns)
-        if frame.empty or missing:
-            label = "Calibrant" if filename.startswith("calibrant") else "Analyte"
-            raise ValueError(f"{label} table needs rows and columns: {', '.join(sorted(required))}.")
+        label = "Calibrant" if filename.startswith("calibrant") else "Analyte"
+        frame = panel.table.validated_dataframe(required, label)
         if filename.startswith("calibrant") and len(frame) < 3:
             raise ValueError("CCS calibration needs at least three calibrant rows.")
         original = panel.table._csv_path or (Path(picker.path()) if picker.path() else None)
@@ -842,12 +932,12 @@ class WatersWorkspacePanel(QWidget):
                 text = str(value).strip()
                 if not text:
                     return text
-                path = Path(text)
+                path = local_path(text)
                 if original and not path.is_absolute():
                     relative = original.parent / path
                     path = relative if relative.exists() or not path.exists() else path
                     return str(path.resolve())
-                return text
+                return str(path)
             frame["raw_path"] = frame["raw_path"].map(absolute_reference)
         path = Path(self._job_files.name) / filename
         frame.to_csv(path, index=False)
@@ -909,7 +999,7 @@ class WatersWorkspacePanel(QWidget):
 
     def _set_busy(self, busy):
         self._busy = busy
-        for widget in (self.sources_group, self.btn_run, self.btn_ccs, self.chk_ccs, self.display_group, self.advanced, self.btn_advanced, self.btn_reload, self.ccs_editors, self.combo_method):
+        for widget in (self.sources_group, self.btn_run, self.btn_convert, self.btn_export_view, self.btn_ccs, self.chk_ccs, self.display_group, self.range_group, self.advanced, self.btn_advanced, self.btn_reload, self.ccs_editors, self.combo_method):
             widget.setEnabled(not busy)
         self._update_open_buttons()
 

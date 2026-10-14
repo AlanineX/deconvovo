@@ -1,19 +1,22 @@
 # Changelog
 
-## v0.3.0 · Waters Instrument Console
+## v0.3.1 · Waters Instrument Console
 
-- Replaced the desktop's separate step pages with the selected design 01 workbench: run list, measured plots, shared settings and an optional activity log.
-- Merged conversion and viewing into **Process & view**; calibration and analyte application share the same paths and method. Background work keeps the console responsive and locks affected inputs while a job runs.
-- Added a local enhanced viewer and **Export portable HTML**. Both include local Plotly assets and work offline; export preserves the chosen settings.
-- Preserved saved viewer defaults, exposed the enhanced controls and **Advanced → Save defaults**, and refreshed HTML when processing so older output cannot mask changed settings.
-- Kept terminal progress compatible with standard Windows text encoding, including per-run pusher timing.
-- Added nine complete real RAW acquisitions across protein/ADP, tune-mix/Betaine and native HSP104 workflows, with original bytes and portable configuration.
-- Added a pinned Waters-only Windows build, byte verification for all 148 demo files, and source/frozen checks covering two RAW acquisitions, six CCS references, one analyte and ten result PNGs, plus offline rendering, native fonts and laptop layout.
-- Added permanent native validation, build provenance and actual Windows GUI preview assets beside the application ZIP.
-- Conversion errors fail the workflow instead of reporting successful empty results. Existing conversion, CCS and optional UniDec command-line interfaces remain available.
+- Made protein standards → ADP CCS the primary complete example; seven real acquisitions retain 106 original files and 235.75 MiB.
+- Added a separate visual-only Betaine 1000–2000 detail using the existing acquisition, without calibration inputs.
+- Aligned heatmap, mass and drift profiles at bin centres and the rendered axis ranges, including the rightmost mass edge.
+- Added visible X/Y limits and current-view PNG/CSV exports while retaining offline desktop and portable HTML viewing.
+- Added full-width editable calibrant/analyte sheets with field help, column resizing and Save CSV; Convert only needs no reference tables.
+- Preserved blank optional formula defaults and shared Windows/UNC/space-containing path handling.
+- Extended source/frozen Windows gates to the protein-to-ADP example, path handling, alignment and all current-view exports; retained permanent validation, provenance and preview assets.
+- Preserved the complete mathematical explanation in both source layouts.
 
-The demonstrations retain their scientific limitations: poor protein calibration fit, ADP/Betaine extrapolation, inherited candidate assignments, and no compatible HSP104 CCS curve. See [demo notes](demo_data/production/README.md).
+The protein calibration fit is poor, many ADP results extrapolate, and the inherited assignments require review. The Betaine detail is a visual example with unassigned high-mass features. See [demo notes](demo_data/production/README.md).
+
+## v0.3.0
+
+Introduced the selected design 01 Console, merged processing/viewing, local enhanced viewer, portable offline HTML, saved defaults and native validation assets. Its generated distribution is superseded by v0.3.1.
 
 ## v0.2.3
 
-The enhanced browser viewer was present, but the desktop omitted several settings, generation could discard saved defaults, and HTML loaded Plotly from the internet. Its Windows package did not include the new Console, offline desktop viewer or complete production demos.
+Included the enhanced browser viewer. The later Console corrected omitted settings, saved defaults and the external Plotly dependency.

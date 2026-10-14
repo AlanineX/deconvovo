@@ -32,7 +32,7 @@ jobs:
           files: |
             release-artifact/WatersConsole-win64.zip
             release-validation/build_provenance.json
-            release-validation/validation/native_smoke.json
-            release-validation/validation/native_console.png
+            release-validation/native validation with spaces/native_smoke.json
+            release-validation/native validation with spaces/native_console.png
           fail_on_unmatched_files: true
-          body_path: RELEASE_NOTES_v0.3.0.md
+          body_path: RELEASE_NOTES_v0.3.1.md

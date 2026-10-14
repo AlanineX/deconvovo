@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from deconvovo.paths import local_path
+
 
 def run(
     source: Path,
@@ -34,8 +36,11 @@ def run(
         import waters_convert as wc
     from deconvovo.imms_plot import run as plot_run
 
-    source = Path(source).expanduser().resolve()
-    out_dir = Path(out_dir).expanduser().resolve()
+    source = local_path(source).resolve()
+    out_dir = local_path(out_dir).resolve()
+    calibrant_csv = local_path(calibrant_csv).resolve() if calibrant_csv is not None else None
+    analyte_csv = local_path(analyte_csv).resolve() if analyte_csv is not None else None
+    config_path = local_path(config_path).resolve() if config_path is not None else None
     if not source.is_dir():
         raise FileNotFoundError(f"Source directory does not exist: {source}")
     if method not in {"direct", "twostep"}:
@@ -52,7 +57,10 @@ def run(
         # Inspect all condition folders, even when some runs are direct children.
         raw_dirs = [source] if source.suffix.lower() == ".raw" else sorted(
             p for p in source.rglob("*") if p.is_dir() and p.suffix.lower() == ".raw")
-    if any(out_dir.is_relative_to(raw) for raw in raw_dirs):
+    if any(out_dir.is_relative_to(raw) for raw in raw_dirs) or any(
+        parent.suffix.lower() == ".raw" and parent.is_dir()
+        for parent in (out_dir, *out_dir.parents)
+    ):
         raise ValueError("Choose an output directory outside the RAW acquisition")
     if not html and not calibrant_csv and not raw_dirs:
         raise ValueError("Choose RAW conversion, viewers, or CCS analysis")

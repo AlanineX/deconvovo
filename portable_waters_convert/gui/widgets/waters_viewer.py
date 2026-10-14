@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -14,6 +15,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Si
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFileDialog, QLabel, QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget
 
+from deconvovo.paths import local_path
 from gui.widgets.plot_canvas import PlotCanvas
 
 
@@ -108,13 +110,30 @@ def _config_script(config: dict) -> str:
     """Set real HTML controls, then use the existing viewer's apply functions."""
     values = json.dumps(config.get("defaults", {}), ensure_ascii=True)
     presets = json.dumps(config.get("presets", {}).get("colormap", []), ensure_ascii=True)
+    initial = config.get("initial_view") or {}
+    for key in ("mz_range", "drift_range"):
+        bounds = initial.get(key)
+        if bounds is not None and (not isinstance(bounds, (list, tuple)) or len(bounds) != 2
+                or not all(isinstance(value, (int, float)) and math.isfinite(value) for value in bounds)
+                or bounds[0] >= bounds[1]):
+            raise ValueError(f"The {key.replace('_', ' ')} must contain a finite minimum lower than its maximum.")
+    ranges = json.dumps(initial, ensure_ascii=True)
     return """
     (function(){
-      var d=DEFAULTS, presets=PRESETS, changed=false, rebinned=false;
+      var d=DEFAULTS, presets=PRESETS, ranges=RANGES, changed=false, rebinned=false;
       var map={smooth_2d:'sm2d',scale:'mzscale',noise_2d:'noise2d',denoise:'denoise',
         smooth_drift:'smdrift',noise_drift:'noisedrift',ms_mode:'msmode',noise_mz:'noisemz',
         mz_bins:'nbins',drift_bins:'dbins',colormap:'cmap',render:'render',z_scale:'zscale'};
       if (typeof applyAll!=='function') return false;
+      var rawLo=typeof RAW_MZ_LO0==='undefined'?HM_MZ_LO0:RAW_MZ_LO0;
+      var rawHi=typeof RAW_MZ_HI0==='undefined'?HM_MZ_HI0:RAW_MZ_HI0;
+      if(ranges.mz_range && ((ranges.mz_range[0]<HM_MZ_LO0 && rawLo<HM_MZ_LO0) ||
+                            (ranges.mz_range[1]>HM_MZ_HI0 && rawHi>HM_MZ_HI0))) {
+        window.watersConsoleConfigError='The current HTML covers m/z '+HM_MZ_LO0+' to '+HM_MZ_HI0+
+          '. Use Process & view to regenerate the requested range.';
+        return window.watersConsoleConfigError;
+      }
+      window.watersConsoleConfigError='';
       Object.keys(map).forEach(function(key){
         if (!(key in d)) return;
         var el=document.getElementById(map[key]); if(!el)return;
@@ -140,10 +159,29 @@ def _config_script(config: dict) -> str:
         if(el.value!==value){el.value=value;changed=true;
           if(key==='mz_bins'||key==='drift_bins')rebinned=true;}
       });
-      if(changed){if(rebinned)rebinFull();else applyAll();}
+      var signature=JSON.stringify(ranges), patch={};
+      var rangeChanged=Object.keys(ranges).length && signature!==window.watersConsoleRanges;
+      if(rangeChanged) {
+        [['mz_range',['xaxis2','xaxis4'],[HM_MZ_LO0,HM_MZ_HI0]],
+         ['drift_range',['yaxis','yaxis2'],[0,nD_native*(pusherUs>0?pusherUs/1000:1)]]].forEach(function(item){
+          if(!(item[0] in ranges))return;
+          item[1].forEach(function(axis){
+            patch[axis+'.range']=(ranges[item[0]]||item[2]).slice();
+            patch[axis+'.autorange']=false;
+          });
+        });
+        window.watersConsoleRanges=signature;
+      }
+      window.watersPendingRender=Promise.resolve(window.watersPendingRender).then(function(){
+        if(changed)return rebinned?rebinFull():applyAll();
+      }).then(function(){
+        if(rangeChanged)return Plotly.relayout(P,patch);
+      }).then(function(){
+        if(rangeChanged)return updateMarginals();
+      }).catch(function(error){window.watersConsoleConfigError=error.message;});
       return true;
     })()
-    """.replace("DEFAULTS", values).replace("PRESETS", presets)
+    """.replace("DEFAULTS", values).replace("PRESETS", presets).replace("RANGES", ranges)
 
 
 class _PreviewSignals(QObject):
@@ -271,7 +309,7 @@ class WatersViewerWidget(QWidget):
                                              f"Viewer export (*{suffix})")
         if path:
             try:
-                destination = self._output_path(Path(path), {suffix})
+                destination = self._output_path(path, {suffix})
             except ValueError as error:
                 download.cancel()
                 self.status.setText(str(error))
@@ -285,8 +323,8 @@ class WatersViewerWidget(QWidget):
         else:
             download.cancel()
 
-    def _output_path(self, path: Path, suffixes: set[str]) -> Path:
-        destination = Path(path).expanduser().resolve()
+    def _output_path(self, path: Path | str, suffixes: set[str]) -> Path:
+        destination = local_path(path).resolve()
         if any(parent.suffix.casefold() == ".raw" for parent in (destination, *destination.parents)):
             raise ValueError("Choose an export location outside RAW acquisitions.")
         if any(self._record.get(key) and destination == Path(self._record[key]).resolve()
@@ -400,7 +438,8 @@ class WatersViewerWidget(QWidget):
                 self.status.setText("; ".join(result["errors"]) or "No readable spectrum in the selected files.")
 
     def apply_config(self, config: dict):
-        """Debounce live display changes; initial-view domain changes need regeneration."""
+        """Debounce live controls and numeric ranges on the existing plot."""
+        _config_script(config)  # validate before accepting a programmatic change
         self._config = deepcopy(config)
         if self._html_ready:
             self._config_timer.start()
@@ -428,11 +467,46 @@ class WatersViewerWidget(QWidget):
     def _apply_pending_config(self):
         if self._closed or not self._html_ready or not self.web_view:
             return
-        self.web_view.page().runJavaScript(_config_script(self._config))
+        def applied(result):
+            if isinstance(result, str) and result and not self._closed:
+                self.status.setText(result)
+                self.status.show()
+            elif result is True and not self._closed and self.status.text().startswith("The current HTML covers m/z "):
+                self.status.hide()
+
+        self.web_view.page().runJavaScript(_config_script(self._config), applied)
 
     def open_browser(self):
         if self._viewer_path and self._viewer_path.is_file():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._viewer_path)))
+
+    def export_current(self, kind: str):
+        """Capture the live Plotly viewport through the offline HTML exporter."""
+        if kind not in {"full_png", "heatmap_png", "mz_png", "drift_png",
+                        "heatmap_csv", "mz_csv", "drift_csv"}:
+            raise ValueError("Unknown current-view export.")
+        if self._closed or not self._html_ready or not self.web_view:
+            raise ValueError("Process & view before exporting the current view.")
+        # Flush a pending control change before queueing the capture. Both
+        # scripts execute on the same page; the exporter waits for Plotly.
+        self._config_timer.stop()
+        self._apply_pending_config()
+        script = """
+        (function(){
+          if(typeof watersExportCurrent!=='function') return false;
+          watersExportCurrent(KIND).catch(function(error){
+            alert('Unable to export the current view: '+error.message);
+          });
+          return true;
+        })()
+        """.replace("KIND", json.dumps(kind))
+
+        def started(available):
+            if not available and not self._closed:
+                self.status.setText("Regenerate this viewer to enable current-view PNG and CSV exports.")
+                self.status.show()
+
+        self.web_view.page().runJavaScript(script, started)
 
     def export_html(self, destination: Path) -> Path:
         """Copy the existing single-file offline artifact without regeneration."""

@@ -7,12 +7,12 @@
   "profiles": [
     {
       "id": "protein_adp",
-      "name": "Protein standards + ADP batch (5 real runs)",
+      "name": "Protein calibrants + ADP CCS (5 real runs)",
       "source": "protein_adp/raw",
       "viewer_config": "protein_adp/viewer_config.json",
       "calibrant_csv": "protein_adp/calibrants.csv",
       "analyte_csv": "protein_adp/analytes.csv",
-      "description": "Five acquired RAW folders: three unfolded protein standards and two ADP solution conditions. Realistic batch and calibration QC example. Inherited 25-point calibration has a poor log-fit score (0.8741) and ADP application extrapolates; review is required before scientific use.",
+      "description": "Three unfolded protein calibrants establish the curve applied to two ADP solution conditions. This is the default ADP CCS example. The inherited 25-point calibration has a poor log-fit score (0.8741), and 30 of 34 ADP target peaks lie below its reference drift interval; review is required before scientific use.",
       "method": "direct",
       "bundled": true,
       "ccs_scope": "review_required_poor_fit_and_extrapolation",
@@ -60,15 +60,15 @@
       }
     },
     {
-      "id": "hsp104",
-      "name": "Native HSP104 pair (2 real runs)",
-      "source": "hsp104/raw",
-      "viewer_config": "hsp104/viewer_config.json",
-      "description": "Two native HSP104 acquisitions with a high-mass display window and linked profiles. Convert and view; no compatible CCS calibration is bundled.",
+      "id": "betaine_1000_2000",
+      "name": "Betaine · 1000–2000 m/z detail",
+      "source": "small_molecule/raw/20260320_BETAINE_V2.raw",
+      "viewer_config": "small_molecule/betaine_1000_2000_viewer_config.json",
+      "description": "A display-only preset for the existing complete Betaine acquisition, focusing on measured but chemically unassigned features at 1000–2000 m/z and 4–12 ms. This choice adds no acquisitions and provides no CCS calibration.",
       "bundled": true,
       "ccs_scope": "viewer_only",
-      "raw_count": 2,
-      "bytes": 67680456
+      "raw_count": 1,
+      "bytes": 13276233
     }
   ],
   "acquisitions": [
@@ -93,7 +93,10 @@
         "IMS Wave Velocity (m/s)": "400",
         "IMS Wave Height (V)": "25.0",
         "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "200.00"
+        "HeliumCellGasFlow": "200.00",
+        "Manual Trap Collision Energy": "FALSE",
+        "Trap Collision Energy": "4.0",
+        "Using Auto Trap Collision Energy (eV)": "4.000000"
       },
       "bytes": 53426227,
       "file_count": 14,
@@ -191,7 +194,10 @@
         "IMS Wave Velocity (m/s)": "400",
         "IMS Wave Height (V)": "25.0",
         "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "200.00"
+        "HeliumCellGasFlow": "200.00",
+        "Manual Trap Collision Energy": "FALSE",
+        "Trap Collision Energy": "4.0",
+        "Using Auto Trap Collision Energy (eV)": "4.000000"
       },
       "bytes": 35564913,
       "file_count": 14,
@@ -289,7 +295,10 @@
         "IMS Wave Velocity (m/s)": "400",
         "IMS Wave Height (V)": "25.0",
         "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "200.00"
+        "HeliumCellGasFlow": "200.00",
+        "Manual Trap Collision Energy": "FALSE",
+        "Trap Collision Energy": "4.0",
+        "Using Auto Trap Collision Energy (eV)": "4.000000"
       },
       "bytes": 41438439,
       "file_count": 14,
@@ -387,7 +396,10 @@
         "IMS Wave Velocity (m/s)": "400",
         "IMS Wave Height (V)": "25.0",
         "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "200.00"
+        "HeliumCellGasFlow": "200.00",
+        "Manual Trap Collision Energy": "FALSE",
+        "Trap Collision Energy": "4.0",
+        "Using Auto Trap Collision Energy (eV)": "4.000000"
       },
       "bytes": 9838735,
       "file_count": 14,
@@ -485,7 +497,10 @@
         "IMS Wave Velocity (m/s)": "400",
         "IMS Wave Height (V)": "25.0",
         "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "200.00"
+        "HeliumCellGasFlow": "200.00",
+        "Manual Trap Collision Energy": "FALSE",
+        "Trap Collision Energy": "4.0",
+        "Using Auto Trap Collision Energy (eV)": "4.000000"
       },
       "bytes": 64277152,
       "file_count": 14,
@@ -583,7 +598,10 @@
         "IMS Wave Velocity (m/s)": "400",
         "IMS Wave Height (V)": "25.0",
         "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "200.00"
+        "HeliumCellGasFlow": "200.00",
+        "Manual Trap Collision Energy": "TRUE",
+        "Trap Collision Energy": "20.0",
+        "Using Auto Trap Collision Energy (eV)": "4.000000"
       },
       "bytes": 29376444,
       "file_count": 18,
@@ -701,7 +719,10 @@
         "IMS Wave Velocity (m/s)": "400",
         "IMS Wave Height (V)": "25.0",
         "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "200.00"
+        "HeliumCellGasFlow": "200.00",
+        "Manual Trap Collision Energy": "TRUE",
+        "Trap Collision Energy": "40.0",
+        "Using Auto Trap Collision Energy (eV)": "4.000000"
       },
       "bytes": 13276233,
       "file_count": 18,
@@ -797,276 +818,10 @@
           "sha256": "b1f1236aab488dbb4f7411e410babe8144e9ef570abe5fb6a3562ca4cf36ca8b"
         }
       ]
-    },
-    {
-      "id": "20260901_HSP104_1_2_ATPYS_2",
-      "raw_path": "hsp104/raw/20260901_HSP104_1_2_ATPYS_2.raw",
-      "profile": "hsp104",
-      "role": "sample",
-      "source_dataset": "HSP104 paired acquisitions",
-      "source_kind": "complete_real_Waters_RAW_directory",
-      "nominal_date_from_run_name": "20260901",
-      "header": {
-        "Acquired Name": "20260901_HSP104_1_2_ATPYS_2",
-        "Acquired Date": "01-Sep-2026",
-        "Acquired Time": "16:04:41",
-        "Instrument": "SYNAPT-G2#NotSet",
-        "Sample Description": "10uM HSP104 30mM EDDA 30 ATPyS"
-      },
-      "pusher_period_us": 274.0,
-      "instrument_settings": {
-        "EDC Delay Coefficient": "1.5700",
-        "IMS Wave Velocity (m/s)": "500",
-        "IMS Wave Height (V)": "40.0",
-        "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "150.00"
-      },
-      "bytes": 29988106,
-      "file_count": 21,
-      "files": [
-        {
-          "path": "_FUNC001.DAT",
-          "bytes": 8374600,
-          "sha256": "48e6280d4552c783d97c45f636c73c35607d98245f46f9ea903755a753f50ae1"
-        },
-        {
-          "path": "_FUNC001.IDX",
-          "bytes": 12848,
-          "sha256": "0007a76859d796b3d7f6d3f61f1a76a9b59a5af4608a9fb651b15402b63fda76"
-        },
-        {
-          "path": "_FUNC001.STS",
-          "bytes": 89448,
-          "sha256": "6ed9b8094ec95b138f1d7688977495a5c5eb46ac5e54dd73feb23d4b601aaf5e"
-        },
-        {
-          "path": "_FUNC002.DAT",
-          "bytes": 4680224,
-          "sha256": "81df41e4b01b279f6a41394295cfb6849181c9434d2d556a62037240efaaf9a6"
-        },
-        {
-          "path": "_FUNC002.IDX",
-          "bytes": 4400,
-          "sha256": "fb2c47f3450c8e4081738330fac5209556e6de80161325246fe0a6d192bf26c2"
-        },
-        {
-          "path": "_FUNC002.STS",
-          "bytes": 32232,
-          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
-        },
-        {
-          "path": "_FUNCTNS.INF",
-          "bytes": 832,
-          "sha256": "7dca15336b88a9482a4487920bab35c4381cc367911f6013b457518781f5c7d7"
-        },
-        {
-          "path": "_HEADER.TXT",
-          "bytes": 2813,
-          "sha256": "5976fd07166e732a47191602a7229b33505a10214a13a290a86268eec05211d8"
-        },
-        {
-          "path": "_HISTORY.INF",
-          "bytes": 624,
-          "sha256": "4f14a4ba908de91a96379543f6b9d9f5115974de9b5a06512f200699f77f22d9"
-        },
-        {
-          "path": "_PROC001.DAT",
-          "bytes": 1767132,
-          "sha256": "e74700b6510ee559b8a1e6c6533b8fcee8f37d85f1d9b0a9b5051280e1cf068a"
-        },
-        {
-          "path": "_PROC001.IDX",
-          "bytes": 22,
-          "sha256": "966a7d18cff09ab71b064fd33494ed26044de8dbd93b4d2c7f27cce562cf157e"
-        },
-        {
-          "path": "_PROC001.SIG",
-          "bytes": 589044,
-          "sha256": "9102ec3591668a1fe438506c57c2df2e38080b31c1c1f55152f2c28d74d0141d"
-        },
-        {
-          "path": "_PROC001.STS",
-          "bytes": 2581,
-          "sha256": "7cbe82ff67b89f675644b533d9603d0ba44c2954a8900a63db8d838c3c9adde0"
-        },
-        {
-          "path": "_PROC002.DAT",
-          "bytes": 3979164,
-          "sha256": "e4284c0e1389a2938b1c4b81b32b1208a911f8a668115116bb302fbe8667384d"
-        },
-        {
-          "path": "_PROC002.IDX",
-          "bytes": 22,
-          "sha256": "6e4a62c38529fe571e03f4d734cea266cb0c48df306484ca606cff0b194c0952"
-        },
-        {
-          "path": "_PROC002.STS",
-          "bytes": 2581,
-          "sha256": "7cbe82ff67b89f675644b533d9603d0ba44c2954a8900a63db8d838c3c9adde0"
-        },
-        {
-          "path": "_extern.inf",
-          "bytes": 5633,
-          "sha256": "857c4d748b19982c069166612cb5c01121f928cf9d15e14c9fe1baf2761dbb96"
-        },
-        {
-          "path": "_func001.cdt",
-          "bytes": 4931910,
-          "sha256": "62e8ab60027a0ab48cff66326507a4e99a7ad2538f604fa519d227d138b48125"
-        },
-        {
-          "path": "_func001.ind",
-          "bytes": 1408644,
-          "sha256": "e3938d15f94a1009acddea52236f5318199eca92d4e0df552442fcf5c94cd465"
-        },
-        {
-          "path": "_func002.cdt",
-          "bytes": 3138516,
-          "sha256": "10b7574de71a611500e56113faada28be3e9876adabd94c326917598a6973368"
-        },
-        {
-          "path": "_func002.ind",
-          "bytes": 964836,
-          "sha256": "5d8f07da5d8cc38ac22f05189b1bea8685aee06a7a09297e9152a1d235bdf550"
-        }
-      ]
-    },
-    {
-      "id": "20260901_HSP104_6_2P5_ATPYS_1",
-      "raw_path": "hsp104/raw/20260901_HSP104_6_2P5_ATPYS_1.raw",
-      "profile": "hsp104",
-      "role": "sample",
-      "source_dataset": "HSP104 paired acquisitions",
-      "source_kind": "complete_real_Waters_RAW_directory",
-      "nominal_date_from_run_name": "20260901",
-      "header": {
-        "Acquired Name": "20260901_HSP104_6_2P5_ATPYS_1",
-        "Acquired Date": "01-Sep-2026",
-        "Acquired Time": "14:37:38",
-        "Instrument": "SYNAPT-G2#NotSet",
-        "Sample Description": "10uM HSP104 30mM EDDA 3.2 ATPyS"
-      },
-      "pusher_period_us": 274.0,
-      "instrument_settings": {
-        "EDC Delay Coefficient": "1.5700",
-        "IMS Wave Velocity (m/s)": "500",
-        "IMS Wave Height (V)": "40.0",
-        "IMS Gas Flow (mL/min)": "80.00",
-        "HeliumCellGasFlow": "150.00"
-      },
-      "bytes": 37692350,
-      "file_count": 21,
-      "files": [
-        {
-          "path": "_FUNC001.DAT",
-          "bytes": 12096752,
-          "sha256": "ace9c63e061c3217eebd15171a0934fe146133fd79574fc3de5cbe3232d849e4"
-        },
-        {
-          "path": "_FUNC001.IDX",
-          "bytes": 12848,
-          "sha256": "93530004e9c83dcbbbb1a690e17def00b957e9aa5dd885e29123057b33c73d9d"
-        },
-        {
-          "path": "_FUNC001.STS",
-          "bytes": 89448,
-          "sha256": "e83b59dc5aa1db5ab3dd21267fd43befef71fc08685a51e66ebb5cdbb8720031"
-        },
-        {
-          "path": "_FUNC002.DAT",
-          "bytes": 5757136,
-          "sha256": "0ea60d021e98e009001470c527915b42a075cceb0b377c5bcdcc736a781790a9"
-        },
-        {
-          "path": "_FUNC002.IDX",
-          "bytes": 4400,
-          "sha256": "3b5c17180d53b9cb75a68de5053729a57139984b1bc2c734f58fc96dd6a58658"
-        },
-        {
-          "path": "_FUNC002.STS",
-          "bytes": 32232,
-          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
-        },
-        {
-          "path": "_FUNCTNS.INF",
-          "bytes": 832,
-          "sha256": "7dca15336b88a9482a4487920bab35c4381cc367911f6013b457518781f5c7d7"
-        },
-        {
-          "path": "_HEADER.TXT",
-          "bytes": 2816,
-          "sha256": "29a8e0e5aabe5b91bc1671932d3c2c0707bbf6ddd729d53880ea30e35cacbb47"
-        },
-        {
-          "path": "_HISTORY.INF",
-          "bytes": 747,
-          "sha256": "7ec56d3f5cc53a8019fd23784542b45f88f527bad9039b75d411841d67b93b04"
-        },
-        {
-          "path": "_PROC001.DAT",
-          "bytes": 1771212,
-          "sha256": "726daa537a332148d43af5e9524bfc34544f5e9da693cec8f4771a3d0757d7e5"
-        },
-        {
-          "path": "_PROC001.IDX",
-          "bytes": 22,
-          "sha256": "66a4db1a0ec75d50ff94a528017845cd35be2b45669385fdbbf73e4e5f58eef9"
-        },
-        {
-          "path": "_PROC001.SIG",
-          "bytes": 590404,
-          "sha256": "3aad17eaaa11eba0ff9b0feaf625a51e41d7122a87b03901fc72e12cd091cd06"
-        },
-        {
-          "path": "_PROC001.STS",
-          "bytes": 2581,
-          "sha256": "1c77efd7e62e90b90b2d322e04a09834f64d69717f3a1bb36aa7d7eb8cc59b52"
-        },
-        {
-          "path": "_PROC002.DAT",
-          "bytes": 3851520,
-          "sha256": "3e534667c9afd5e769894ae5f96c2ae2570e49f4cf09689fdf0b098f25242226"
-        },
-        {
-          "path": "_PROC002.IDX",
-          "bytes": 22,
-          "sha256": "76e3db9b6c5abf97468e5e8336dd421f0ca4971b2a7f89626a5c3e54e4fe3a45"
-        },
-        {
-          "path": "_PROC002.STS",
-          "bytes": 2581,
-          "sha256": "1c77efd7e62e90b90b2d322e04a09834f64d69717f3a1bb36aa7d7eb8cc59b52"
-        },
-        {
-          "path": "_extern.inf",
-          "bytes": 5633,
-          "sha256": "f5251256430bba511e91ee16dbb2368e6e37febf2ef4e8e36354360c25dcf41f"
-        },
-        {
-          "path": "_func001.cdt",
-          "bytes": 7153488,
-          "sha256": "5d02128338b9d106a653cdc9602f0e648d45ab8adbf797e498b6dff4ebac776b"
-        },
-        {
-          "path": "_func001.ind",
-          "bytes": 1408644,
-          "sha256": "adf0565efd043b8aed874a8ddb326960fee6f590aad513d56d27a1cf8e7ca79b"
-        },
-        {
-          "path": "_func002.cdt",
-          "bytes": 3944196,
-          "sha256": "410cf3ee91f8c0f97c2b27b3477568f0d153b4bfe47f8f717288ab4d9079c01c"
-        },
-        {
-          "path": "_func002.ind",
-          "bytes": 964836,
-          "sha256": "bb7025398bde5fa9d2e421c87e71d0a08ae3e504468232c6f5143db8e51e9674"
-        }
-      ]
     }
   ],
-  "raw_count": 9,
-  "bytes": 314878599,
+  "raw_count": 7,
+  "bytes": 247198143,
   "configuration_rows": {
     "protein_calibrants": 25,
     "adp_targets": 34,
@@ -1077,7 +832,9 @@
     "All RAW folders were copied complete, with per-file SHA256 checks against originals; no synthetic, subsetted, or truncated acquisition is included.",
     "The filename prefixes are nominal dates. Some original protein/ADP headers report dates in 2009; those metadata are preserved and do not establish the filename chronology.",
     "Protein and ADP acquisitions share major TWIMS settings but use different pusher periods. Each acquisition retains its own metadata.",
-    "HSP104 uses different TWIMS settings and must not use the included protein or tune-mix calibration.",
-    "Reference CCS values and target assignments are inherited from existing project CSVs. No new independent reference measurements or chemical identity validation are provided."
-  ]
+    "Reference CCS values and target assignments are inherited from existing project CSVs. No new independent reference measurements or chemical identity validation are provided.",
+    "The default CCS example uses the three protein standards to calibrate the two ADP acquisitions. Betaine is an independent analyte/reference check; one Betaine reference cannot establish a multi-parameter calibration curve.",
+    "The Betaine acquisition records 40 eV trap collision energy, versus 4 eV for the protein standards and ADP acquisitions; a Betaine-only ADP calibration is not provided or validated."
+  ],
+  "file_count": 106
 }

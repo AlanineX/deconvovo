@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from deconvovo.paths import local_path
+
 import numpy as np
 import pandas as pd
 
@@ -73,18 +75,20 @@ def measure_ms_intensity(ms_file: Path, target_mz: float,
 def find_pusher_period(raw_path: Path) -> float | None:
     """Find pusher period from a .raw directory. Dispatches to vendor reader."""
     from deconvovo.vendors.waters import find_pusher_period as _waters_pp
-    return _waters_pp(raw_path)
+    return _waters_pp(local_path(raw_path))
 
 
 def read_extern_inf(raw_path: Path) -> dict[str, str]:
     """Read instrument parameters. Dispatches to vendor reader."""
     from deconvovo.vendors.waters import read_extern_inf as _waters_inf
-    return _waters_inf(raw_path)
+    return _waters_inf(local_path(raw_path))
 
 
 def find_pusher_for_run(data_dir: Path, run_name: str,
                         raw_dir: Path | None = None) -> float | None:
     """Try to find pusher period by searching common locations."""
+    data_dir = local_path(data_dir)
+    raw_dir = local_path(raw_dir) if raw_dir is not None else None
     for search_dir in [data_dir, data_dir.parent]:
         rp = search_dir / f"{run_name}.raw"
         if rp.is_dir():
@@ -105,8 +109,8 @@ def find_pusher_for_run(data_dir: Path, run_name: str,
         try:
             metadata = json.loads(settings.read_text(encoding="utf-8")).get(run_name, {})
             source = metadata.get("raw_source")
-            if source and Path(source).is_dir():
-                return find_pusher_period(Path(source))
+            if source and local_path(source).is_dir():
+                return find_pusher_period(local_path(source))
         except (OSError, ValueError, TypeError):
             pass
     return None

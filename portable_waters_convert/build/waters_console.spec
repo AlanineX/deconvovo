@@ -9,6 +9,8 @@ ROOT = Path(SPECPATH).parent
 datas = [
     (str(ROOT / "bin"), "bin"),
     (str(ROOT / "config"), "config"),
+    (str(ROOT / "docs"), "docs"),
+    (str(ROOT / "README.md"), "."),
     (str(ROOT / "examples" / "production"), "examples/production"),
     (str(Path(plotly.__file__).parent / "package_data"), "plotly/package_data"),
     (os.environ["WATERS_CONSOLE_PROVENANCE"], "build"),

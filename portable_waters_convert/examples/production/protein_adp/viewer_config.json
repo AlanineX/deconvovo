@@ -1,24 +1,23 @@
 {
-  "_comment": "Production demo display settings; preserve the acquired RAW data.",
+  "_comment": "Protein-calibrant and ADP overview: show weak high-mass signal without changing acquired or converted values. Reviewed using the real ADP AmAc acquisition.",
   "defaults": {
     "smooth_2d": {
       "method": "gaussian",
       "sigma": 0.1,
-      "sigma_dr": 0.12
+      "sigma_dr": 0.07
     },
     "scale": "1",
     "smooth_drift": {
-      "method": "gaussian",
-      "sigma": 1
+      "method": "raw"
     },
     "noise_2d": 0.5,
-    "denoise": 5,
+    "denoise": 1,
     "noise_drift": 0,
     "noise_mz": 0,
-    "mz_bins": 3200,
+    "mz_bins": 6400,
     "colormap": "W-Spectral",
     "render": "fast",
-    "z_scale": "sqrt",
+    "z_scale": "cbrt",
     "drift_bins": "native",
     "ms_mode": "profile"
   },
@@ -679,8 +678,8 @@
   },
   "initial_view": {
     "mz_range": [
-      150,
-      2500
+      100,
+      2000
     ],
     "drift_range": [
       0,

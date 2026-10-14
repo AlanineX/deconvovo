@@ -1,16 +1,16 @@
 {
-  "scope": "Software execution and packaging checks using complete real acquired data; not validation of chemical assignments or CCS accuracy.",
+  "scope": "Recorded Linux software execution results for the seven retained real acquisitions; not validation of chemical assignments or CCS accuracy. Results were selected from the earlier execution check, not rerun during demo removal.",
   "execution_platform": "Linux with Wine and bundled CDCReader",
   "windows_executed": false,
-  "raw_acquisition_count": 9,
-  "raw_bytes": 314878599,
+  "raw_acquisition_count": 7,
+  "raw_bytes": 247198143,
   "raw_hashes_preserved_after_conversion": true,
   "source_originals_share_inodes_with_demos": false,
   "conversion": {
     "function": 1,
     "ms_bin": 0,
     "im_bin": 0,
-    "completed": 9,
+    "completed": 7,
     "runs": [
       {
         "run_id": "20260216_UBQ_DEN_NEW_V1",
@@ -60,45 +60,15 @@
         "ms_bytes": 3029757,
         "im_bytes": 11189613,
         "status": "complete"
-      },
-      {
-        "run_id": "20260901_HSP104_1_2_ATPYS_2",
-        "profile": "hsp104",
-        "ms_bytes": 4615593,
-        "im_bytes": 26133166,
-        "status": "complete"
-      },
-      {
-        "run_id": "20260901_HSP104_6_2P5_ATPYS_1",
-        "profile": "hsp104",
-        "ms_bytes": 4439633,
-        "im_bytes": 31046098,
-        "status": "complete"
       }
     ]
   },
   "html": {
-    "completed": 9,
+    "completed": 7,
     "offline_runtime_embedded": true,
     "external_script_sources": 0,
     "enhanced_controls_present": true,
     "runs": [
-      {
-        "run_id": "20260901_HSP104_1_2_ATPYS_2",
-        "profile": "hsp104",
-        "bytes": 37403606,
-        "external_script_sources": [],
-        "enhanced_controls_present": true,
-        "plotly_embedded": true
-      },
-      {
-        "run_id": "20260901_HSP104_6_2P5_ATPYS_1",
-        "profile": "hsp104",
-        "bytes": 38682443,
-        "external_script_sources": [],
-        "enhanced_controls_present": true,
-        "plotly_embedded": true
-      },
       {
         "run_id": "20260212_200UM_ADP_1M_EDDA_PH6_0",
         "profile": "protein_adp",
@@ -201,5 +171,69 @@
     "heatmap_zoom_updates_linked_marginals": "passed",
     "page_errors": 0,
     "screenshot": "preview/betaine_offline_viewer.png"
+  },
+  "raw_file_count": 106,
+  "retained_demo_selection_date": "2026-10-14",
+  "betaine_high_mz_preview": {
+    "date": "2026-10-14",
+    "scope": "Current offline rendering check from the retained real Betaine conversion; no new RAW conversion or CCS calculation was performed for this preview.",
+    "browser": "Chrome",
+    "network_mode": "offline",
+    "run_id": "20260320_BETAINE_V2",
+    "pusher_period_us": 110,
+    "viewer_config": "small_molecule/betaine_1000_2000_viewer_config.json",
+    "viewer_config_sha256": "9c7978b38b13c287d86ced0211ffa31d1dbe4a06803489d330dd6d51c5c795b8",
+    "renderer_source_sha256": "4c3c67da96c70372ddd2e51d9247c71dfb12706498cca38664cc2ac725256f39",
+    "screenshot": "preview/betaine_1000_2000_offline_viewer.png",
+    "screenshot_sha256": "915965c9622977dedf42b5fa945e221fa624e16d783ccbe8115de0c5657adec2",
+    "initial_render_verification": {
+      "heatmap_x": [
+        1000,
+        2000
+      ],
+      "mz_profile_x": [
+        1000,
+        2000
+      ],
+      "heatmap_y": [
+        4,
+        12
+      ],
+      "drift_profile_y": [
+        4,
+        12
+      ],
+      "drift_bin_first": 0.055,
+      "heatmap_bin_first": 0.055,
+      "m_z_alignment_pixel_errors": [
+        0,
+        0,
+        0
+      ],
+      "drift_alignment_pixel_errors": [
+        0,
+        0,
+        0
+      ],
+      "display_config": {
+        "z_scale": "cbrt",
+        "noise2d": "5",
+        "denoise": "1",
+        "nbins": "6400",
+        "dbins": "native",
+        "sm2d": {
+          "method": "gaussian",
+          "sigma": 0.1,
+          "sigma_dr": 0.07
+        },
+        "smdrift": {
+          "method": "raw"
+        },
+        "render": "fast",
+        "msmode": "profile"
+      },
+      "requests": []
+    },
+    "feature_identities": "unassigned"
   }
 }

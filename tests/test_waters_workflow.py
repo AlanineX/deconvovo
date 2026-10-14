@@ -1,12 +1,14 @@
 """Failure, cache, and path contracts for the merged Waters workflow."""
 from pathlib import Path
 import json
+import os
 
 import pandas as pd
 import pytest
 
 from deconvovo import waters_convert, imms_plot, imms_ccs_calibrate, waters_workflow
 from deconvovo.io import find_pusher_for_run
+from deconvovo.paths import clean_path_text, local_path
 
 
 def _raw(tmp_path):
@@ -77,6 +79,14 @@ def test_output_cannot_be_inside_any_original_acquisition(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="outside the RAW"):
         waters_workflow.run(raw.parent, raw / "results", html=False)
     assert not (raw / "results").exists()
+
+
+def test_ccs_only_output_cannot_create_anything_inside_raw(tmp_path):
+    raw = _raw(tmp_path)
+    output = raw / "new folder/ccs"
+    with pytest.raises(ValueError, match="outside the RAW"):
+        imms_ccs_calibrate.run(output, tmp_path, tmp_path / "unused.csv")
+    assert not (raw / "new folder").exists()
 
 
 def test_batch_names_cannot_collide_on_windows(tmp_path, monkeypatch):
@@ -160,6 +170,66 @@ def test_csv_paths_remain_portable_and_old_cwd_paths_work(tmp_path, monkeypatch)
     assert imms_ccs_calibrate._read_species_csv(csv)["raw_path"][0] == str(raw)
     pd.DataFrame({"raw_path": ["demo/raw/sample.raw"]}).to_csv(csv, index=False)
     assert imms_ccs_calibrate._read_species_csv(csv)["raw_path"][0] == str(raw)
+
+
+def test_csv_windows_relative_paths_quotes_spaces_and_utf8_bom(tmp_path, monkeypatch):
+    folder = tmp_path / "portable demo"
+    raw = folder / "raw data/sample.raw"
+    raw.mkdir(parents=True)
+    csv = folder / "calibrants.csv"
+    pd.DataFrame({"raw_path": ['"raw data\\sample.raw"']}).to_csv(csv, index=False, encoding="utf-8-sig")
+    monkeypatch.chdir(tmp_path)
+    frame = imms_ccs_calibrate._read_species_csv(csv)
+    assert Path(frame["raw_path"][0]) == raw
+    assert not (tmp_path / "raw data\\sample.raw").exists()
+
+
+def test_pasted_paths_expand_quotes_home_and_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("WATERS_PATH_TEST", str(tmp_path / "real data"))
+    variable = "%WATERS_PATH_TEST%" if os.name == "nt" else "$WATERS_PATH_TEST"
+    assert local_path(f' "{variable}" ') == tmp_path / "real data"
+    assert local_path('"~"') == Path.home()
+    assert clean_path_text("  ") == ""
+
+
+@pytest.mark.parametrize("text", [r'C:\Data With Spaces\sample.raw', r'\\server\share\Data With Spaces\sample.raw'])
+def test_windows_absolute_paths_never_become_fake_posix_paths(text):
+    assert clean_path_text(f'"{text}"') == text
+    if os.name == "nt":
+        assert local_path(f'"{text}"').is_absolute()
+        assert local_path(text).drive
+    else:
+        with pytest.raises(ValueError, match="needs Windows"):
+            local_path(text)
+
+
+def test_workflow_quoted_paths_preserve_cache_and_original_raw(tmp_path, monkeypatch):
+    raw = tmp_path / "Raw Data/sample.raw"
+    raw.mkdir(parents=True)
+    original = raw / "_FUNC001.DAT"
+    original.write_bytes(b"untouched RAW")
+    calls = []
+    _mock_reader(monkeypatch, calls)
+    out = tmp_path / "Output Data"
+    config = tmp_path / "Viewer Config.json"
+    config.write_text("{}", encoding="utf-8")
+    for _ in range(2):
+        waters_workflow.run(f'"{raw}"', f'"{out}"', html=False,
+                            config_path=f'"{config}"', skip_existing=True)
+    assert len(calls) == 1
+    metadata = json.loads((out / "_converted/conversion_settings.json").read_text(encoding="utf-8"))
+    assert Path(metadata[raw.stem]["raw_source"]) == raw
+    assert original.read_bytes() == b"untouched RAW"
+    with pytest.raises(ValueError, match="outside the RAW"):
+        waters_workflow.run(f'"{raw}"', f'"{raw / "results"}"', html=False)
+    assert not (raw / "results").exists()
+
+
+def test_csv_empty_raw_path_is_reported_before_calibration(tmp_path):
+    csv = tmp_path / "calibrants.csv"
+    pd.DataFrame({"raw_path": [None]}).to_csv(csv, index=False)
+    with pytest.raises(ValueError, match="Empty raw_path"):
+        imms_ccs_calibrate._read_species_csv(csv)
 
 
 def test_mixed_edc_coefficients_reject_calibration(tmp_path, monkeypatch):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -82,6 +83,48 @@ def test_valid_output_promoted_without_ms_smoothing(converter, monkeypatch, tmp_
     assert command[command.index("--ms_number_smooth") + 1] == "0"
 
 
+def test_quoted_paths_with_spaces_are_reader_arguments_without_shell_quotes(converter, monkeypatch, tmp_path):
+    raw = tmp_path / "Raw Data/sample.raw"
+    raw.mkdir(parents=True)
+    original = raw / "_FUNC001.DAT"
+    original.write_bytes(b"original data")
+    out = tmp_path / "Output Data"
+    work = tmp_path / "Reader Tools"
+    commands = []
+
+    def reader(command, **kwargs):
+        commands.append(command)
+        return _reader_result(command)
+
+    monkeypatch.setattr(converter.subprocess, "run", reader)
+    result = converter.convert_one_raw(f'"{raw}"', f'"{out}"', f'"{work}"')
+    assert result["status"] == "complete"
+    command = commands[0]
+    assert command[0] == str(work / "CDCReader.exe")
+    assert command[command.index("-r") + 1] == str(raw)
+    assert all('"' not in argument for argument in command)
+    assert original.read_bytes() == b"original data"
+
+
+def test_converter_rejects_output_inside_raw_before_creating_files(converter, tmp_path):
+    raw = tmp_path / "Sample Data.raw"
+    raw.mkdir()
+    with pytest.raises(ValueError, match="outside the RAW"):
+        converter.convert_one_raw(f'"{raw}"', f'"{raw / "results"}"', tmp_path / "reader")
+    assert not (raw / "results").exists()
+
+
+def test_cli_rejects_output_inside_raw_before_copying_reader(converter, monkeypatch, tmp_path):
+    raw = tmp_path / "Sample Data.raw"
+    raw.mkdir()
+    output = raw / "results"
+    _configure_main(converter, monkeypatch, raw, output, [])
+    with pytest.raises(SystemExit) as error:
+        converter.main()
+    assert error.value.code == 2
+    assert not output.exists()
+
+
 def test_only_requested_output_is_required(converter, monkeypatch, tmp_path):
     raw, output, work = _paths(tmp_path)
 
@@ -132,6 +175,24 @@ def test_cli_skip_existing_honors_output_selection(converter, monkeypatch, tmp_p
     converter.main()
     with (output / "convert_summary.csv").open() as handle:
         assert list(csv.DictReader(handle))[0]["status"] == "skipped"
+
+
+def test_unicode_acquisition_name_does_not_crash_legacy_windows_console(converter, monkeypatch, tmp_path):
+    raw = tmp_path / "β-ADP.raw"
+    raw.mkdir()
+    output = tmp_path / "converted"
+    output.mkdir()
+    for suffix in ("ms", "im"):
+        (output / f"{raw.stem}_{suffix}.txt").write_text("original data", encoding="utf-8")
+    _configure_main(converter, monkeypatch, raw, output, ["--skip-existing"])
+    buffer = io.BytesIO()
+    console = io.TextIOWrapper(buffer, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", console)
+    converter.main()
+    console.flush()
+    assert "skipped" in buffer.getvalue().decode("cp1252")
+    with (output / "convert_summary.csv").open(encoding="utf-8") as handle:
+        assert list(csv.DictReader(handle))[0]["run_name"] == "β-ADP"
 
 
 def test_cli_retries_empty_cache_and_exits_nonzero_on_failure(converter, monkeypatch, tmp_path):

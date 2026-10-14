@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ import pandas as pd
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QPushButton, QProgressBar, QTabWidget, QComboBox, QSplitter,
+    QPushButton, QProgressBar, QTabWidget, QComboBox,
 )
 from PySide6.QtCore import Qt
 
@@ -38,6 +39,7 @@ class CcsCalibrationPanel(QWidget):
         self._log = log_panel
         self._worker = None
         self._cal = None
+        self._csv_files = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -67,22 +69,20 @@ class CcsCalibrationPanel(QWidget):
         self.pick_out = DirPicker("Output:", dialog_title="Select output directory")
         layout.addWidget(self.pick_out)
 
-        # Splitter: table | plots
-        splitter = QSplitter(Qt.Horizontal)
-        self.table = CsvTable(editable=True)
-        splitter.addWidget(self.table)
-
+        # Give the editable sheet and each result the full available width.
         tabs = QTabWidget()
+        self.table = CsvTable(editable=True)
+        self.table.csv_path_changed.connect(self.pick_csv.set_path)
+        tabs.addTab(self.table, "Calibrant sheet")
+
         self.plot_cal = PlotCanvas(figsize=(8, 3.5), nrows=1, ncols=2)
         tabs.addTab(self.plot_cal, "Calibration Curve")
         self.plot_drift = PlotCanvas(figsize=(8, 6), nrows=3, ncols=3)
         tabs.addTab(self.plot_drift, "Drift Profiles")
         self.summary_table = CsvTable(editable=False)
         tabs.addTab(self.summary_table, "Calibrant Summary")
-        splitter.addWidget(tabs)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        layout.addWidget(splitter, stretch=1)
+        self.sheet_tabs = tabs
+        layout.addWidget(tabs, stretch=1)
 
         # Bottom
         bot = QHBoxLayout()
@@ -124,15 +124,21 @@ class CcsCalibrationPanel(QWidget):
             self._log.log(f"Missing columns: {missing}", "error")
             return
 
+        self._csv_files = tempfile.TemporaryDirectory(prefix="deconvovo-calibrants-")
+        tmp = Path(self._csv_files.name) / "calibrants.csv"
+        try:
+            self.table.write_snapshot(tmp, required, "Calibrant")
+        except (OSError, ValueError) as error:
+            self._csv_files.cleanup()
+            self._csv_files = None
+            self._log.log(str(error), "error")
+            return
         method = self.combo_method.currentText()
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         self._log.log(f"Starting CCS calibration ({method})...", "accent")
 
-        import tempfile
-        tmp = Path(tempfile.mktemp(suffix=".csv"))
-        df.to_csv(tmp, index=False)
         self._worker = Worker(self._do_calibrate, str(tmp), data, out, method)
         self._worker.finished.connect(lambda r: self._on_done(r, tmp))
         self._worker.error.connect(lambda e: self._on_error(e, tmp))
@@ -152,6 +158,9 @@ class CcsCalibrationPanel(QWidget):
 
     def _on_done(self, cal, tmp_csv):
         tmp_csv.unlink(missing_ok=True)
+        if self._csv_files:
+            self._csv_files.cleanup()
+            self._csv_files = None
         self._cal = cal
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
@@ -172,6 +181,9 @@ class CcsCalibrationPanel(QWidget):
 
     def _on_error(self, msg, tmp_csv):
         tmp_csv.unlink(missing_ok=True)
+        if self._csv_files:
+            self._csv_files.cleanup()
+            self._csv_files = None
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
         self.lbl_status.setText("Calibration failed")
@@ -220,7 +232,7 @@ class CcsCalibrationPanel(QWidget):
 
         from gui.widgets.plot_canvas import PlotCanvas
         old = self.plot_drift
-        tabs = old.parent()
+        tabs = self.sheet_tabs
         idx = tabs.indexOf(old)
         self.plot_drift = PlotCanvas(figsize=(8, max(3, nrows * 2.5)), nrows=nrows, ncols=ncols)
         tabs.removeTab(idx)

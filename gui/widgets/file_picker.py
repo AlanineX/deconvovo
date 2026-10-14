@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal
 
+from deconvovo.paths import clean_path_text
+
 
 class _BasePicker(QWidget):
     path_changed = Signal(str)
@@ -23,7 +25,7 @@ class _BasePicker(QWidget):
         row.addWidget(lbl)
         self.line = QLineEdit()
         self.line.setPlaceholderText(placeholder)
-        self.line.textChanged.connect(self.path_changed.emit)
+        self.line.textChanged.connect(lambda _text: self.path_changed.emit(self.path()))
         row.addWidget(self.line, stretch=1)
         btn = QPushButton("  Browse  ")
         btn.setProperty("secondary", True)
@@ -38,7 +40,7 @@ class _BasePicker(QWidget):
             outer.addWidget(h)
 
     def _browse(self): ...
-    def path(self) -> str: return self.line.text().strip()
+    def path(self) -> str: return clean_path_text(self.line.text())
     def set_path(self, p: str): self.line.setText(p)
 
 
@@ -49,7 +51,7 @@ class DirPicker(_BasePicker):
         self._title = dialog_title
 
     def _browse(self):
-        d = QFileDialog.getExistingDirectory(self, self._title, self.line.text())
+        d = QFileDialog.getExistingDirectory(self, self._title, self.path())
         if d: self.line.setText(d)
 
 
@@ -63,5 +65,5 @@ class FilePicker(_BasePicker):
         self._filter = file_filter
 
     def _browse(self):
-        f, _ = QFileDialog.getOpenFileName(self, self._title, self.line.text(), self._filter)
+        f, _ = QFileDialog.getOpenFileName(self, self._title, self.path(), self._filter)
         if f: self.line.setText(f)

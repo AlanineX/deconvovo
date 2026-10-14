@@ -160,7 +160,10 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     mz_edges = np.linspace(hm_mz_range[0], hm_mz_range[1], n_mz_bins + 1)
     mz_centers = (mz_edges[:-1] + mz_edges[1:]) / 2
     heatmap = np.zeros((n_drift, n_mz_bins), dtype=np.float64)
-    bin_idx = np.searchsorted(mz_edges, mz_nz) - 1
+    # Histogram cells include their lower edge; the final cell also includes
+    # the domain's upper edge, matching the browser's rebinning convention.
+    bin_idx = np.searchsorted(mz_edges, mz_nz, side="right") - 1
+    bin_idx[mz_nz == mz_edges[-1]] = n_mz_bins - 1
     valid = (bin_idx >= 0) & (bin_idx < n_mz_bins)
     for d, bi, intensity in zip(drift_nz[valid], bin_idx[valid], int_nz[valid]):
         heatmap[int(d), int(bi)] += intensity
@@ -170,11 +173,12 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     sub_mz = mz_centers
     bw = (sub_mz[-1] - sub_mz[0]) / len(sub_mz) if len(sub_mz) > 1 else 0
     drift_bins_int = np.arange(n_drift)
+    drift_centers = drift_bins_int.astype(float) + 0.5
     if pusher_us:
-        drift_bins = drift_bins_int * pusher_us / 1000  # convert to ms
+        drift_bins = drift_centers * pusher_us / 1000  # bin centres in ms
         drift_label = "Drift Time (ms)"
     else:
-        drift_bins = drift_bins_int.astype(float)
+        drift_bins = drift_centers
         drift_label = "Drift Time (bins)"
 
     # --- Load raw MS spectrum for m/z panel (full isotopic resolution) ---
@@ -637,12 +641,12 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
     <button id="exp2d" title="Export 2D heatmap only as high-res PNG"
       style="font-size:{int(FS*0.85)}px;padding:5px 10px;border:1px solid #999;border-radius:3px;
       background:#eee;cursor:pointer">2D PNG</button>
-    <button id="expdrift" title="Export drift profile as CSV"
+    <button id="expdrift" title="Export full-domain rebinned drift intensity and a separately smoothed/resampled profile; these are not a current-view capture"
       style="font-size:{int(FS*0.85)}px;padding:5px 10px;border:1px solid #999;border-radius:3px;
-      background:#eee;cursor:pointer">Drift CSV</button>
-    <button id="expmz" title="Export m/z spectrum as CSV"
+      background:#eee;cursor:pointer">Drift raw + smoothed CSV</button>
+    <button id="expmz" title="Export the original MS table in the visible m/z window and a separately thresholded copy; these are not the drift-linked displayed trace"
       style="font-size:{int(FS*0.85)}px;padding:5px 10px;border:1px solid #999;border-radius:3px;
-      background:#eee;cursor:pointer">m/z CSV</button>
+      background:#eee;cursor:pointer">m/z raw + denoised CSV</button>
   </div>
 </div>
 <script>
@@ -651,6 +655,7 @@ var rawIM={raw_im_j};
 // hmMzLo/hmMzHi = the heatmap m/z domain. HM_MZ_LO0/HI0 is the IMMUTABLE baked
 // domain; hmMzLo/hmMzHi are kept equal to it (never narrowed by zoom).
 var HM_MZ_LO0={hm_mz_range[0]},HM_MZ_HI0={hm_mz_range[1]};
+var RAW_MZ_LO0={mz_lo},RAW_MZ_HI0={mz_hi};
 var hmMzLo=HM_MZ_LO0,hmMzHi=HM_MZ_HI0;
 var nD=H.length,nM=MZ.length;
 var nD_native=nD;
@@ -697,6 +702,7 @@ function rebinFull() {{
       var pts = rawIM[dd];
       for (var i = 0; i < pts.length; i++) {{
         var bi = Math.floor((pts[i][0] - mzLo) / mzStep);
+        if (pts[i][0] === mzHi) bi = nbMz - 1;
         if (bi >= 0 && bi < nbMz) row[bi] += pts[i][1];
       }}
     }}
@@ -704,15 +710,15 @@ function rebinFull() {{
   }}
   H = newH; MZ = newMZ; DR = newDR; nD = nbDr; nM = nbMz;
   axRatio = nM / nD;
-  applyAll();
+  return applyAll();
 }}
 var figData={fig_json};
 var P=document.getElementById('plot');
-Plotly.newPlot(P,figData.data,figData.layout,{{responsive:true}}).then(function(){{
+window.watersPendingRender=Plotly.newPlot(P,figData.data,figData.layout,{{responsive:true}}).then(function(){{
   // One-shot render so the FIRST paint already reflects the default smoothing /
   // noise / intensity controls. Without this the baked traces are raw and the
   // heatmap visibly "jumps" the first time any control is touched.
-  applyAll();
+  return applyAll();
 }});
 
 // --- Savitzky-Golay in JS (fits polynomial to sliding window) ---
@@ -874,33 +880,30 @@ function smooth2D(h, preset) {{
 
 // === Get visible zoom range ===
 function getVisibleRange() {{
-  var layout = P.layout;
+  // Matched axes can retain stale editable ranges after a relayout; project
+  // the data over the ranges Plotly actually rendered for the shared axes.
+  var layout = P._fullLayout || P.layout;
   var xr = null, yr = null;
   // xaxis2 = heatmap x (shared with xaxis4 = m/z panel x)
   if (layout.xaxis2 && layout.xaxis2.range) xr = layout.xaxis2.range.slice();
   if (layout.yaxis2 && layout.yaxis2.range) yr = layout.yaxis2.range.slice();
-  // Fallback to full range. CLAMP the m/z window to the heatmap domain so the
-  // m/z marginal can never project rawIM peaks that lie outside what the heatmap
-  // shows (e.g. panning past the [350,1250] clip). This keeps the bottom panel
-  // and the 2D heatmap consistent.
-  var mzLo = xr ? Math.max(hmMzLo, xr[0]) : MZ[0];
-  var mzHi = xr ? Math.min(hmMzHi, xr[1]) : MZ[nM-1];
-  if (mzHi <= mzLo) {{ mzLo = MZ[0]; mzHi = MZ[nM-1]; }}
-  var drLo = yr ? yr[0] : DR[0],  drHi = yr ? yr[1] : DR[nD-1];
-  // current heatmap-bin indices in DR (drift)
-  var dBl = 0, dBh = nD - 1;
-  if (yr) {{
-    for (var i = 0; i < nD; i++) if (DR[i] >= drLo) {{ dBl = i; break; }}
-    for (var i = nD - 1; i >= 0; i--) if (DR[i] <= drHi) {{ dBh = i; break; }}
-  }}
-  // m/z bin indices
-  var mBl = 0, mBh = nM-1;
-  for (var i = 0; i < nM; i++) if (MZ[i] >= mzLo) {{ mBl = i; break; }}
-  for (var i = nM-1; i >= 0; i--) if (MZ[i] <= mzHi) {{ mBh = i; break; }}
+  // Select visible cells by their edges, rather than only their centres:
+  // a partially visible coloured cell must still contribute to the projection.
+  // An entirely out-of-domain viewport selects no cells, never the full run.
+  var mzLo = xr ? Math.max(hmMzLo, Math.min(xr[0], xr[1])) : hmMzLo;
+  var mzHi = xr ? Math.min(hmMzHi, Math.max(xr[0], xr[1])) : hmMzHi;
+  var driftHi = nD_native * (pusherUs > 0 ? pusherUs / 1000 : 1);
+  var drLo = yr ? Math.max(0, Math.min(yr[0], yr[1])) : 0;
+  var drHi = yr ? Math.min(driftHi, Math.max(yr[0], yr[1])) : driftHi;
+  var mzStep = (hmMzHi - hmMzLo) / nM, drWidth = driftHi / nD;
+  var mBl = mzHi > mzLo ? Math.max(0, Math.floor((mzLo - hmMzLo) / mzStep)) : 0;
+  var mBh = mzHi > mzLo ? Math.min(nM - 1, Math.ceil((mzHi - hmMzLo) / mzStep) - 1) : -1;
+  var dBl = drHi > drLo ? Math.max(0, Math.floor(drLo / drWidth)) : 0;
+  var dBh = drHi > drLo ? Math.min(nD - 1, Math.ceil(drHi / drWidth) - 1) : -1;
   // Native drift bin range for rawIM indexing (rawIM has nD_native entries)
   var drStep = nD_native / nD;
   var ndBl = Math.max(0, Math.floor(dBl * drStep));
-  var ndBh = Math.min(nD_native - 1, Math.floor((dBh + 1) * drStep) - 1);
+  var ndBh = dBh >= dBl ? Math.min(nD_native - 1, Math.floor((dBh + 1) * drStep) - 1) : -1;
   return {{ mzLo:mzLo, mzHi:mzHi, drLo:drLo, drHi:drHi,
            dBl:dBl, dBh:dBh, ndBl:ndBl, ndBh:ndBh, mBl:mBl, mBh:mBh }};
 }}
@@ -951,7 +954,7 @@ function apply2D() {{
   }}
   // Colorbar title rides on the heatmap trace (per-trace colorbar, NOT a
   // layout coloraxis) so it must be set via restyle, not relayout.
-  Plotly.restyle(P, {{z:[z], x:[MZ], y:[DR], colorscale:[cmap], zsmooth:[zsmooth],
+  return Plotly.restyle(P, {{z:[z], x:[MZ], y:[DR], colorscale:[cmap], zsmooth:[zsmooth],
     'colorbar.title.text':[title]}}, {HM_IDX});
 }}
 
@@ -1041,11 +1044,11 @@ function updateMarginals() {{
   }}
 
   // Single restyle — Plotly auto-scales axes (fixedrange removed)
-  Plotly.restyle(P, {{x: [dp, mx], y: [DR, my]}}, [{DRIFT_IDX}, {MZ_IDX}]);
+  var render=Plotly.restyle(P, {{x: [dp, mx], y: [DR, my]}}, [{DRIFT_IDX}, {MZ_IDX}]);
   // Empty-window guard: keep the m/z panel visible (with a sane fallback range)
   // instead of collapsing to a degenerate axis. Only relayout on a state CHANGE,
   // and set a flag so our own relayout doesn't re-trigger the handler (no loop).
-  setMzPanelGuard(_mzPeak > 0);
+  return Promise.all([render,setMzPanelGuard(_mzPeak > 0)]);
 }}
 var _mzGuardState = null, _guardingY = false;
 function setMzPanelGuard(hasSignal) {{
@@ -1054,13 +1057,12 @@ function setMzPanelGuard(hasSignal) {{
   _guardingY = true;
   var p = hasSignal ? Plotly.relayout(P, {{'yaxis4.autorange': true}})
                     : Plotly.relayout(P, {{'yaxis4.range': [0, 1]}});
-  p.then(function() {{ _guardingY = false; }});
+  return p.then(function() {{ _guardingY = false; }});
 }}
 
 // === Master apply (called by Apply button) ===
 function applyAll() {{
-  apply2D();
-  updateMarginals();
+  return Promise.all([apply2D(),updateMarginals()]);
 }}
 document.getElementById('apply').onclick = applyAll;
 
@@ -1081,7 +1083,7 @@ document.getElementById('dbins').onchange = rebinFull;
 
 // === Export helpers ===
 function downloadCSV(filename, csvText) {{
-  var blob = new Blob([csvText], {{type:'text/csv'}});
+  var blob = new Blob(Array.isArray(csvText)?csvText:[csvText], {{type:'text/csv'}});
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -1094,60 +1096,88 @@ function downloadPNG(filename, dataUrl) {{
   a.download = filename;
   a.click();
 }}
-document.getElementById('expfull').onclick = function() {{
-  // Export full plot at layout dimensions × 3 DPI
-  var lo = P.layout;
-  Plotly.toImage(P, {{format:'png', width:lo.width, height:lo.height, scale:3}}).then(function(url) {{
-    downloadPNG('{run_name}_full_plot.png', url);
-  }});
-}};
-document.getElementById('exp2d').onclick = function() {{
-  // Export 2D heatmap only — clone the heatmap trace into a standalone figure
-  // that matches the HTML appearance exactly
-  var hm = P.data[{HM_IDX}];
-  var lo = P.layout;
-  var tmpDiv = document.createElement('div');
-  tmpDiv.style.cssText = 'position:absolute;left:-9999px';
-  document.body.appendChild(tmpDiv);
-  // Clone axis style from the main figure's heatmap axes (xaxis2/yaxis2)
-  var xSrc = lo.xaxis2 || {{}};
-  var ySrc = lo.yaxis2 || {{}};
-  var ax = {{showline:true, linewidth:1, linecolor:'#444', mirror:true,
-    showgrid:true, gridwidth:0.5, gridcolor:'#e0e0e0', griddash:'dot',
-    minor:{{showgrid:true, gridwidth:0.3, gridcolor:'#eee', griddash:'dot'}}}};
-  var lay = {{
-    font: lo.font, width:lo.width, height:lo.height,
-    margin:{{l:80, r:100, t:20, b:70}},
-    template:'plotly_white',
-    plot_bgcolor:'white', paper_bgcolor:'white',
-    xaxis:Object.assign({{title:'<i>m/z</i>',
-      range: xSrc.range ? xSrc.range.slice() : null}}, ax),
-    yaxis:Object.assign({{title:'{drift_label}',
-      range: ySrc.range ? ySrc.range.slice() : null}}, ax)
-  }};
-  // Deep-clone the heatmap trace with all current visual state (incl. zsmooth)
-  // and the LIVE colorbar title (tracks the current intensity transform, not a
-  // hardcoded log10).
-  var _cbTitle = (hm.colorbar && hm.colorbar.title && hm.colorbar.title.text)
-               ? hm.colorbar.title.text : 'I';
-  var trace = {{type:'heatmap', z:hm.z, x:hm.x, y:hm.y,
-    colorscale:hm.colorscale, zsmooth:hm.zsmooth,
-    colorbar:{{title:{{text:_cbTitle, side:'top'}}, thickness:22}},
-    hovertemplate:hm.hovertemplate}};
-  Plotly.newPlot(tmpDiv, [trace], lay).then(function() {{
-    return Plotly.toImage(tmpDiv, {{format:'png', width:lo.width, height:lo.height, scale:3}});
-  }}).then(function(url) {{
-    downloadPNG('{run_name}_2d_heatmap.png', url);
-    Plotly.purge(tmpDiv);
-    document.body.removeChild(tmpDiv);
-  }});
-}};
+// Current-view CSVs use the rendered traces, never a second raw-data pipeline.
+function watersCurrentCSV(kind) {{
+  var vr=getVisibleRange(), lines=[], trace, coordinate, value;
+  var driftColumn=pusherUs>0?'drift_time_ms':'drift_bin';
+  if(kind==='heatmap_csv') {{
+    trace=P.data[{HM_IDX}];
+    var chunks=['mz,'+driftColumn+',display_value,intensity_transform\\n'];
+    var transform=document.getElementById('zscale').value;
+    // Keep a partially visible cell with its original centre and value.
+    for(var d=vr.dBl;d<=vr.dBh;d++){{
+      lines=[];
+      for(var m=vr.mBl;m<=vr.mBh;m++)
+        lines.push([trace.x[m],trace.y[d],trace.z[d][m],transform].join(','));
+      if(lines.length)chunks.push(lines.join('\\n')+'\\n');
+    }}
+    return chunks; // bound the temporary line list to one drift row
+  }} else if(kind==='mz_csv'||kind==='drift_csv') {{
+    var drift=kind==='drift_csv';trace=P.data[drift?{DRIFT_IDX}:{MZ_IDX}];
+    coordinate=drift?trace.y:trace.x;value=drift?trace.x:trace.y;
+    var lo=drift?vr.drLo:vr.mzLo,hi=drift?vr.drHi:vr.mzHi;
+    lines.push((drift?driftColumn:'mz')+',display_value');
+    for(var i=0;i<coordinate.length;i++) {{
+      // Blank rows preserve the breaks in a stick-mode line trace.
+      if(coordinate[i]===null||value[i]===null){{lines.push(',');continue;}}
+      if(coordinate[i]>=lo&&coordinate[i]<=hi)
+        lines.push(coordinate[i]+','+value[i]);
+    }}
+  }} else throw new Error('Unknown current-view CSV');
+  return lines.join('\\n');
+}}
+async function watersExportCurrent(kind) {{
+  await Promise.resolve(window.watersPendingRender);
+  if(window.watersConsoleConfigError)throw new Error(window.watersConsoleConfigError);
+  // Finish a zoom's pending linked profiles before reading the live traces.
+  cancelAnimationFrame(_rafId);
+  await updateMarginals();
+  await Plotly.redraw(P);
+  await new Promise(function(resolve){{requestAnimationFrame(resolve);}});
+  var prefix={_json.dumps(run_name)}+'_current_';
+  if(kind.endsWith('_csv')) {{
+    downloadCSV(prefix+kind.replace('_csv','.csv'),watersCurrentCSV(kind));
+    return;
+  }}
+  var lo=P.layout, full=P._fullLayout;
+  var image={{format:'png',width:full.width,height:full.height,scale:3}};
+  if(kind==='full_png'){{downloadPNG(prefix+'full.png',await Plotly.toImage(P,image));return;}}
+  var axes, index;
+  if(kind==='heatmap_png'){{index={HM_IDX};axes=['xaxis2','yaxis2'];}}
+  else if(kind==='mz_png'){{index={MZ_IDX};axes=['xaxis4','yaxis4'];}}
+  else if(kind==='drift_png'){{index={DRIFT_IDX};axes=['xaxis','yaxis'];}}
+  else throw new Error('Unknown current-view PNG');
+  function axis(name,anchor){{
+    return Object.assign({{}},lo[name],{{domain:[0,1],anchor:anchor,matches:null,
+      range:full[name].range.slice(),autorange:false,showticklabels:true}});
+  }}
+  var trace=Object.assign({{}},P.data[index],{{xaxis:'x',yaxis:'y'}});
+  if(index==={HM_IDX})trace.colorbar=Object.assign({{}},trace.colorbar,{{len:1,y:0.5}});
+  var layout={{font:lo.font,width:full.width,height:full.height,
+    margin:{{l:80,r:index==={HM_IDX}?100:40,t:20,b:70}},
+    plot_bgcolor:lo.plot_bgcolor,paper_bgcolor:lo.paper_bgcolor,
+    xaxis:axis(axes[0],'y'),yaxis:axis(axes[1],'x')}};
+  if(index==={HM_IDX}){{
+    layout.xaxis.title=Object.assign({{}},layout.xaxis.title,{{text:'<i>m/z</i>'}});
+    layout.yaxis.title=Object.assign({{}},layout.yaxis.title,{{text:'{drift_label}'}});
+  }}
+  if(index==={DRIFT_IDX})layout.xaxis.title=Object.assign({{}},layout.xaxis.title,{{text:'Intensity'}});
+  var temporary=document.createElement('div');
+  temporary.style.cssText='position:absolute;left:-9999px';document.body.appendChild(temporary);
+  try{{
+    await Plotly.newPlot(temporary,[trace],layout,{{staticPlot:true}});
+    downloadPNG(prefix+kind.replace('_png','.png'),await Plotly.toImage(temporary,image));
+  }}finally{{Plotly.purge(temporary);temporary.remove();}}
+}}
+document.getElementById('expfull').onclick = function() {{watersExportCurrent('full_png');}};
+document.getElementById('exp2d').onclick = function() {{watersExportCurrent('heatmap_png');}};
 document.getElementById('expdrift').onclick = function() {{
-  // Export TWO drift CSVs: raw (native bins) + smoothed (0.02ms grid)
-  // 1. Raw — native drift bins, full range TIC
+  // Export TWO drift CSVs: raw rebinned intensity + smoothed/resampled.
+  // 1. Raw — current drift bins, full baked m/z domain TIC.
   var dp = new Array(nD).fill(0);
   for (var d = 0; d < nD; d++) for (var m = 0; m < nM; m++) dp[d] += H[d][m];
-  var lines = ['drift_time_ms,intensity'];
+  var driftColumn=pusherUs>0?'drift_time_ms':'drift_bin';
+  var lines = [driftColumn+',intensity'];
   for (var d = 0; d < nD; d++) lines.push(DR[d].toFixed(4) + ',' + dp[d].toFixed(1));
   downloadCSV('{run_name}_drift_raw.csv', lines.join('\\n'));
 
@@ -1163,7 +1193,7 @@ document.getElementById('expdrift').onclick = function() {{
   if (preset.method !== 'raw') dpS = smooth1D(dpS, preset);
   // Resample to 0.02ms uniform grid via linear interpolation
   var dtLo = DR[0], dtHi = DR[nD-1], step = 0.02;
-  var lines2 = ['drift_time_ms,intensity'];
+  var lines2 = [driftColumn+',intensity'];
   for (var t = dtLo; t <= dtHi; t += step) {{
     // Find bracketing bins
     var idx = 0;

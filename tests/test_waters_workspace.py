@@ -77,9 +77,9 @@ def test_real_demo_loads_full_batch_settings_and_ccs_tables(panel):
     assert panel.viewer_panel.current_config()["initial_view"]["mz_range"] == demo_config["initial_view"]["mz_range"]
     assert not panel.calibration_panel.pick_data.isVisible()
     assert not panel.analyte_panel.pick_cal.isVisible()
-    panel.combo_demo.setCurrentIndex(next(i for i in range(panel.combo_demo.count()) if (panel.combo_demo.itemData(i) or {}).get("id") == "hsp104"))
+    panel.combo_demo.setCurrentIndex(next(i for i in range(panel.combo_demo.count()) if (panel.combo_demo.itemData(i) or {}).get("id") == "betaine_1000_2000"))
     panel._load_demo()
-    assert panel.run_table.rowCount() == 2
+    assert panel.run_table.rowCount() == 1
     assert panel.calibration_panel.table.to_dataframe().empty
     assert panel.analyte_panel.table.to_dataframe().empty
     assert not panel.chk_ccs.isChecked()
@@ -97,6 +97,68 @@ def test_shared_paths_follow_source_output_and_method(panel, tmp_path):
         assert editor.combo_method.currentText() == "twostep"
     assert panel.tabs.count() == 2
     assert panel.chk_reuse.isChecked()
+
+
+def test_convert_only_needs_no_ccs_tables_or_viewer_config(panel, tmp_path, monkeypatch):
+    import deconvovo.waters_workflow as workflow
+    source = tmp_path / "sample.raw"
+    source.mkdir()
+    output = tmp_path / "converted"
+    panel.pick_source.set_path(str(source))
+    panel.pick_out.set_path(str(output))
+    panel.chk_ccs.setChecked(True)  # Convert only remains independent of this opt-in.
+    panel.calibration_panel.table.load_dataframe(pd.DataFrame())
+    panel.analyte_panel.table.load_dataframe(pd.DataFrame())
+    captured = []
+
+    def fake_run(_source, _output, **kwargs):
+        captured.append(kwargs)
+        assert kwargs["convert"] is True
+        assert kwargs["html"] is False
+        assert kwargs["calibrant_csv"] is None
+        assert kwargs["analyte_csv"] is None
+        assert kwargs["config_path"] is None
+        return {"converted_dir": str(output), "runs": [], "status": "complete"}
+
+    monkeypatch.setattr(workflow, "run", fake_run)
+    panel.convert_only()
+    _wait_until(lambda: not panel.is_busy)
+    assert len(captured) == 1
+    assert panel.btn_convert.isEnabled()
+
+
+def test_visible_axis_range_fields_save_and_reload_existing_config(panel, tmp_path, monkeypatch):
+    import gui.panels.html_viewer as html_viewer
+    viewer = panel.viewer_panel
+    viewer.chk_mz_range.setChecked(True)
+    viewer.spin_mz_min.setValue(1000)
+    viewer.spin_mz_max.setValue(2000)
+    viewer.chk_drift_range.setChecked(True)
+    viewer.spin_drift_min.setValue(2.5)
+    viewer.spin_drift_max.setValue(8.5)
+    assert viewer.spin_mz_min.parent() is panel.range_group
+    assert viewer.spin_drift_max.parent() is panel.range_group
+    destination = tmp_path / "viewer_config.json"
+    monkeypatch.setattr(html_viewer, "_config_path", lambda: destination)
+    assert viewer._save_config()
+    saved = json.loads(destination.read_text())
+    assert saved["initial_view"]["mz_range"] == [1000, 2000]
+    assert saved["initial_view"]["drift_range"] == [2.5, 8.5]
+    viewer.spin_mz_min.setValue(0)
+    viewer.set_config(saved)
+    assert viewer.spin_mz_min.value() == 1000
+    assert viewer.current_config()["initial_view"] == saved["initial_view"]
+
+
+def test_current_view_export_flushes_pending_controls_before_export(panel, monkeypatch):
+    calls = []
+    panel.viewer_panel.spin_noise2d.setValue(7.25)
+    panel._refresh_view_timer.start()
+    monkeypatch.setattr(panel.viewer_widget, "apply_config", lambda cfg: calls.append(("config", cfg["defaults"]["noise_2d"])))
+    monkeypatch.setattr(panel.viewer_widget, "export_current", lambda kind: calls.append(("export", kind)))
+    panel.export_current_view("mz_png")
+    assert not panel._refresh_view_timer.isActive()
+    assert calls == [("config", 7.25), ("export", "mz_png")]
 
 
 def test_converted_processing_is_one_background_job_and_locks_inputs(panel, tmp_path, monkeypatch):

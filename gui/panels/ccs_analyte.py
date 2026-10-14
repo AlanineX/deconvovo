@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import pandas as pd
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QProgressBar, QTabWidget, QComboBox, QSplitter,
+    QPushButton, QProgressBar, QTabWidget, QComboBox,
 )
 from PySide6.QtCore import Qt
 
@@ -22,6 +23,7 @@ class CcsAnalytePanel(QWidget):
         super().__init__(parent)
         self._log = log_panel
         self._worker = None
+        self._csv_files = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -53,17 +55,15 @@ class CcsAnalytePanel(QWidget):
         out_row.addWidget(self.combo_method)
         layout.addLayout(out_row)
 
-        # Splitter: table | summary
-        splitter = QSplitter(Qt.Horizontal)
-        self.table = CsvTable(editable=True)
-        splitter.addWidget(self.table)
+        # Editing and computed results each use the full sheet width.
         tabs = QTabWidget()
+        self.table = CsvTable(editable=True)
+        self.table.csv_path_changed.connect(self.pick_ana.set_path)
+        tabs.addTab(self.table, "Analyte sheet")
         self.summary_table = CsvTable(editable=False)
         tabs.addTab(self.summary_table, "Analyte Summary")
-        splitter.addWidget(tabs)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        layout.addWidget(splitter, stretch=1)
+        self.sheet_tabs = tabs
+        layout.addWidget(tabs, stretch=1)
 
         # Bottom
         bot = QHBoxLayout()
@@ -95,12 +95,21 @@ class CcsAnalytePanel(QWidget):
         if not all([cal, ana, data, out]):
             self._log.log("Set all fields: calibrant CSV, analyte CSV, converted dir, output.", "warning")
             return
+        self._csv_files = tempfile.TemporaryDirectory(prefix="deconvovo-analytes-")
+        snapshot = Path(self._csv_files.name) / "analytes.csv"
+        try:
+            self.table.write_snapshot(snapshot, {"species", "mw", "z", "mz", "raw_path"}, "Analyte")
+        except (OSError, ValueError) as error:
+            self._csv_files.cleanup()
+            self._csv_files = None
+            self._log.log(str(error), "error")
+            return
         method = self.combo_method.currentText()
         self.btn_run.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         self._log.log(f"Computing analyte CCS ({method})...", "accent")
-        self._worker = Worker(self._do_run, cal, ana, data, out, method)
+        self._worker = Worker(self._do_run, cal, str(snapshot), data, out, method)
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
@@ -118,6 +127,9 @@ class CcsAnalytePanel(QWidget):
             logger.removeHandler(handler)
 
     def _on_done(self, cal):
+        if self._csv_files:
+            self._csv_files.cleanup()
+            self._csv_files = None
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
         csv = Path(self.pick_out.path()) / "analyte_summary.csv"
@@ -130,6 +142,9 @@ class CcsAnalytePanel(QWidget):
             self._log.log(f"Analyte CCS complete: {len(df)} rows", "success")
 
     def _on_error(self, msg):
+        if self._csv_files:
+            self._csv_files.cleanup()
+            self._csv_files = None
         self.btn_run.setEnabled(True)
         self.progress.setVisible(False)
         self.lbl_status.setText("Failed")

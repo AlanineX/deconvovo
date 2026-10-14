@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from deconvovo.io import read_im_txt, read_extern_inf, find_pusher_period, measure_ms_intensity
+from deconvovo.paths import local_path
 from deconvovo.ccs_peak_pick import (
     compute_auto_mz_window, extract_drift_profile,
     detect_peaks_in_profile, select_peak,
@@ -51,7 +52,7 @@ def _setup_logging(out_dir: Path) -> None:
     ch.setFormatter(fmt)
     ch._waters_output_handler = True
     _log.addHandler(ch)
-    fh = logging.FileHandler(out_dir / "warnings.log", mode="w")
+    fh = logging.FileHandler(out_dir / "warnings.log", mode="w", encoding="utf-8")
     fh.setLevel(logging.WARNING)
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s",
                                        datefmt="%Y-%m-%d %H:%M:%S"))
@@ -61,13 +62,15 @@ def _setup_logging(out_dir: Path) -> None:
 
 def _read_species_csv(csv_path: Path) -> pd.DataFrame:
     """Resolve portable acquisition paths beside the table, retaining old cwd paths."""
-    csv_path = Path(csv_path).resolve()
+    csv_path = local_path(csv_path).resolve()
     frame = pd.read_csv(csv_path)
     if "raw_path" not in frame.columns:
         raise ValueError(f"Missing raw_path column in {csv_path.name}")
 
     def resolve(value):
-        path = Path(str(value)).expanduser()
+        if pd.isna(value) or not str(value).strip():
+            raise ValueError(f"Empty raw_path in {csv_path.name}; every row needs a RAW acquisition path")
+        path = local_path(str(value))
         if path.is_absolute():
             return str(path)
         relative = csv_path.parent / path
@@ -82,7 +85,8 @@ def _read_species_csv(csv_path: Path) -> pd.DataFrame:
 def _resolve_mz_window(row, mw, z):
     """Resolve mz_window from CSV row: 'auto', numeric, or NaN → auto."""
     raw = row["mz_window"]
-    formula = str(row.get("formula", "")) if "formula" in row.index else ""
+    formula = row.get("formula", "")
+    formula = "" if pd.isna(formula) else str(formula).strip()
     if str(raw).strip().lower() == "auto" or pd.isna(raw):
         return compute_auto_mz_window(mw, z, formula)
     return float(raw)
@@ -376,7 +380,14 @@ def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
         analyte_csv: Path | None = None,
         conversion_method: str = "direct") -> dict:
     """Publish a complete new CCS result set; keep the previous one on failure."""
-    out_dir = Path(out_dir).resolve()
+    out_dir = local_path(out_dir).resolve()
+    if any(parent.suffix.lower() == ".raw" and parent.is_dir()
+           for parent in (out_dir, *out_dir.parents)):
+        raise ValueError("Choose an output directory outside the RAW acquisition")
+    directories = [data_dirs] if isinstance(data_dirs, (str, Path)) else data_dirs
+    data_dirs = [local_path(directory).resolve() for directory in directories]
+    calibrant_csv = local_path(calibrant_csv).resolve()
+    analyte_csv = local_path(analyte_csv).resolve() if analyte_csv is not None else None
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     if out_dir.exists() and not out_dir.is_dir():
         raise ValueError(f"CCS output is not a directory: {out_dir}")
@@ -415,10 +426,10 @@ def main() -> None:
     parser.add_argument("--conversion-method", default="direct",
                         choices=["direct", "twostep"])
     args = parser.parse_args()
-    run(Path(args.output).resolve(),
-        [Path(d).resolve() for d in args.data_dir],
-        Path(args.calibrant_csv).resolve(),
-        Path(args.analyte_csv).resolve() if args.analyte_csv else None,
+    run(local_path(args.output).resolve(),
+        [local_path(d).resolve() for d in args.data_dir],
+        local_path(args.calibrant_csv).resolve(),
+        local_path(args.analyte_csv).resolve() if args.analyte_csv else None,
         args.conversion_method)
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -208,8 +209,10 @@ def test_loaded_file_url_is_normalized_and_stale_or_remote_completions_are_ignor
     class FakePage:
         def __init__(self):
             self.calls = []
-        def runJavaScript(self, script):
+        def runJavaScript(self, script, callback=None):
             self.calls.append(script)
+            if callback:
+                callback(True)
     class FakeView(QWidget):
         def __init__(self):
             super().__init__()
@@ -261,7 +264,7 @@ def test_live_config_delegates_to_original_viewer_algorithms():
     assert "rebinFull()" in script
     assert "applyAll()" in script
     assert "gaussSmooth" not in script
-    assert "HM_MZ_LO0" not in script
+    assert not re.search(r"\bHM_MZ_LO0\s*=(?!=)", script)
 
 
 def test_disable_webengine_overrides_explicit_headless_opt_in(monkeypatch):

@@ -26,6 +26,11 @@ class PlotCanvas(QWidget):
         self.axes = self.fig.subplots(nrows, ncols, squeeze=False)
         self._apply_theme()
         self.canvas = FigureCanvasQTAgg(self.fig)
+        # draw_idle schedules a Qt callback. Parent deletion can destroy the
+        # canvas first; cancel that pending draw before its callback reaches a
+        # deleted QWidget. Matplotlib checks this flag before using Qt methods.
+        self.canvas.destroyed.connect(
+            lambda _object=None, canvas=self.canvas: setattr(canvas, "_draw_pending", False))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.canvas)

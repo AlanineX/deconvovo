@@ -1,0 +1,2 @@
+-r requirements-pipeline.txt
+PySide6>=6.5

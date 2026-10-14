@@ -15,15 +15,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-
-import numpy as np
-import pandas as pd
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -40,15 +38,20 @@ def find_cdcreader() -> Path:
     # Check PyInstaller bundle first
     if getattr(sys, 'frozen', False):
         candidate = Path(sys._MEIPASS) / "unidec" / "bin" / "CDCReader.exe"
-        if candidate.exists():
+        if candidate.is_file():
             return candidate
+
+    # The shareable source bundle includes the same reader and its DLLs.
+    candidate = _get_base_path() / "portable_waters_convert" / "bin" / "CDCReader.exe"
+    if candidate.is_file():
+        return candidate
 
     # Check UniDec package in current environment
     try:
         import unidec
         pkg_dir = Path(unidec.__file__).parent
         candidate = pkg_dir / "bin" / "CDCReader.exe"
-        if candidate.exists():
+        if candidate.is_file():
             return candidate
     except ImportError:
         pass
@@ -71,9 +74,11 @@ def find_support_dlls(cdcreader_dir: Path) -> list[Path]:
     for name in ["MassLynxRaw.dll", "cdt.dll"]:
         for search_dir in [cdcreader_dir, cdcreader_dir.parent / "UniDecImporter" / "Waters"]:
             p = search_dir / name
-            if p.exists():
+            if p.is_file():
                 dlls.append(p)
                 break
+        else:
+            raise FileNotFoundError(f"Missing CDCReader support DLL: {name}")
     return dlls
 
 
@@ -98,9 +103,15 @@ def convert_one_raw(
 
     Returns dict with paths to output files and metadata.
     """
+    if skip_ms and skip_im:
+        raise ValueError("Choose at least one output; cannot skip both MS and IM")
+    if func < 1 or ms_bin < 0 or im_bin < 0:
+        raise ValueError("Function must be at least 1; bin widths must be nonnegative")
+    raw_dir, out_dir, work_dir = Path(raw_dir), Path(out_dir), Path(work_dir)
+    if not raw_dir.is_dir():
+        raise FileNotFoundError(f"Waters .raw folder not found: {raw_dir}")
+    out_dir.mkdir(parents=True, exist_ok=True)
     run_name = raw_dir.stem
-    ms_out = out_dir / f"{run_name}_ms.txt"
-    im_out = out_dir / f"{run_name}_im.txt"
 
     cdcreader = work_dir / "CDCReader.exe"
 
@@ -112,55 +123,47 @@ def convert_one_raw(
         if not wine:
             raise FileNotFoundError(
                 "Wine not found. Install wine to run CDCReader.exe on Linux.")
-        cmd = ["wine", str(cdcreader)]
+        cmd = [wine, str(cdcreader)]
 
     cmd += ["-r", _to_native_path(raw_dir.resolve()), "--fn", str(func)]
 
-    if not skip_ms:
-        cmd += ["-m", _to_native_path(ms_out.resolve())]
-    else:
-        cmd += ["--skip_ms", "1"]
-
-    if not skip_im:
-        cmd += ["-i", _to_native_path(im_out.resolve())]
-    else:
-        cmd += ["--skip_im", "1"]
-
     cmd += ["--ms_bin", str(ms_bin)]
     cmd += ["--im_bin", str(im_bin)]
+    # Keep the exported spectrum unaltered; smoothing belongs in the viewer.
+    cmd += ["--ms_smooth_window", "0", "--ms_number_smooth", "0"]
 
     # Environment: suppress Wine debug noise on Linux
     env = dict(os.environ)
     if not IS_WINDOWS:
         env["WINEDEBUG"] = "-all"
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=env,
-    )
-
-    info: dict = {
-        "run_name": run_name,
-        "raw_dir": str(raw_dir),
-        "func": func,
-        "status": "complete" if result.returncode == 0 else f"error:{result.returncode}",
-    }
-
-    if result.returncode != 0:
-        info["stderr"] = result.stderr[:500]
+    # A reader can exit successfully without writing data (e.g. a missing
+    # function). Stage each run so old outputs cannot conceal that failure.
+    with tempfile.TemporaryDirectory(prefix=".waters-", dir=out_dir) as staging:
+        requested = {name: Path(staging) / f"{run_name}_{name}.txt"
+                     for name, skipped in (("ms", skip_ms), ("im", skip_im))
+                     if not skipped}
+        for name, skipped in (("ms", skip_ms), ("im", skip_im)):
+            cmd += ([f"--skip_{name}", "1"] if skipped else
+                    [f"-{name[0]}", _to_native_path(requested[name].resolve())])
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=120, env=env)
+        info = {"run_name": run_name, "raw_dir": str(raw_dir), "func": func,
+                "status": "complete" if result.returncode == 0
+                else f"error:{result.returncode}"}
+        missing = [name for name, path in requested.items()
+                   if not path.is_file() or path.stat().st_size == 0]
+        if result.returncode != 0 or missing:
+            if result.returncode == 0:
+                info["status"] = "error: missing or empty " + ", ".join(missing) + " output"
+            info["stderr"] = (result.stderr or result.stdout).strip()[:500]
+            return info
+        for name, path in requested.items():
+            output = out_dir / path.name
+            path.replace(output)
+            info[f"{name}_file"] = str(output)
+            info[f"{name}_size"] = output.stat().st_size
         return info
-
-    if not skip_ms and ms_out.exists() and ms_out.stat().st_size > 0:
-        info["ms_file"] = str(ms_out)
-        info["ms_size"] = ms_out.stat().st_size
-    if not skip_im and im_out.exists() and im_out.stat().st_size > 0:
-        info["im_file"] = str(im_out)
-        info["im_size"] = im_out.stat().st_size
-
-    return info
 
 
 def collect_raw_dirs(inputs: list[str]) -> list[Path]:
@@ -209,16 +212,18 @@ def main() -> None:
                         help="Skip runs whose outputs already exist")
 
     args = parser.parse_args()
+    if args.fn < 1 or args.ms_bin < 0 or args.im_bin < 0:
+        parser.error("--fn must be at least 1; bin widths must be nonnegative")
+    if args.skip_ms and args.skip_im:
+        parser.error("Choose at least one output; cannot skip both MS and IM")
+    raw_dirs = collect_raw_dirs(args.inputs)
+    if not raw_dirs:
+        parser.error("No .raw directories found; provide a complete .raw folder or its parent")
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     work_dir = setup_work_dir(out_dir)
     cdcreader_path = find_cdcreader()
-
-    raw_dirs = collect_raw_dirs(args.inputs)
-    if not raw_dirs:
-        print("No .raw directories found.")
-        sys.exit(1)
 
     platform = "native" if IS_WINDOWS else "Wine"
     print(f"Waters Convert: {len(raw_dirs)} .raw dirs -> {out_dir}")
@@ -228,10 +233,12 @@ def main() -> None:
     results = []
     for raw_dir in raw_dirs:
         run_name = raw_dir.stem
-        ms_exists = (out_dir / f"{run_name}_ms.txt").exists()
-        im_exists = (out_dir / f"{run_name}_im.txt").exists()
+        ms_out = out_dir / f"{run_name}_ms.txt"
+        im_out = out_dir / f"{run_name}_im.txt"
+        ms_exists = ms_out.is_file() and ms_out.stat().st_size > 0
+        im_exists = im_out.is_file() and im_out.stat().st_size > 0
 
-        if args.skip_existing and ms_exists and im_exists:
+        if args.skip_existing and (args.skip_ms or ms_exists) and (args.skip_im or im_exists):
             print(f"  {run_name} — skipped (exists)")
             results.append({"run_name": run_name, "status": "skipped"})
             continue
@@ -250,15 +257,23 @@ def main() -> None:
             im_size = info.get("im_size", 0)
             print(f" — {info['status']}"
                   f" (MS: {ms_size/1024:.0f}K, IM: {im_size/1024:.0f}K)")
+            if info.get("stderr"):
+                print(f"    {info['stderr']}")
             results.append(info)
         except Exception as e:
             print(f" — ERROR: {e}")
             results.append({"run_name": run_name, "status": f"error: {e}"})
 
-    pd.DataFrame(results).to_csv(out_dir / "convert_summary.csv", index=False)
+    fields = list(dict.fromkeys(key for result in results for key in result))
+    with (out_dir / "convert_summary.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(results)
     n_ok = sum(1 for r in results if r.get("status") == "complete")
     print(f"\nDone: {n_ok}/{len(results)} converted")
     print(f"Output: {out_dir}")
+    if any(str(result["status"]).startswith("error") for result in results):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

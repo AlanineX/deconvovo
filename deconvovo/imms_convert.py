@@ -15,12 +15,13 @@ def _convert_one(args: dict) -> dict:
     work_dir = Path(args["work_dir"])
     run_name = raw_dir.stem
 
-    if (out_dir / f"{run_name}_ms.txt").exists():
+    outputs = [out_dir / f"{run_name}_{kind}.txt" for kind in ("ms", "im")]
+    if all(path.is_file() and path.stat().st_size > 0 for path in outputs):
         return {"run_name": run_name, "status": "cached"}
 
     try:
         info = wc.convert_one_raw(raw_dir, out_dir, work_dir)
-        return {"run_name": run_name, "status": info.get("status", "unknown")}
+        return info
     except Exception as e:
         return {"run_name": run_name, "status": f"ERROR: {e}"}
 
@@ -30,8 +31,7 @@ def run(input_dir: Path, output_dir: Path, n_workers: int = 4) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     raw_dirs = wc.collect_raw_dirs([str(input_dir)])
     if not raw_dirs:
-        print("  No .raw directories found")
-        return output_dir
+        raise FileNotFoundError(f"No .raw directories found in {input_dir}")
 
     work_dir = wc.setup_work_dir(output_dir)
 
@@ -44,6 +44,11 @@ def run(input_dir: Path, output_dir: Path, n_workers: int = 4) -> Path:
 
     for r in results:
         print(f"    {r['run_name']} — {r['status']}")
+
+    failed = [r for r in results if r.get("status") not in ("complete", "cached")]
+    if failed:
+        detail = "; ".join(f"{r['run_name']}: {r['status']}" for r in failed)
+        raise RuntimeError(f"Waters conversion failed: {detail}")
 
     return output_dir
 

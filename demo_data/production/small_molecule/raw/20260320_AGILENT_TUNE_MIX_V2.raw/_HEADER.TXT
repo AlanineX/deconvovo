@@ -1,0 +1,57 @@
+$$ Version: 01.00
+$$ Acquired Name: 20260320_AGILENT_TUNE_MIX_V2
+$$ Acquired Date: 29-Jun-2009
+$$ Acquired Time: 01:40:40
+$$ Job Code: 
+$$ Task Code: 
+$$ User Name: 
+$$ Instrument: SYNAPT-G2#NotSet
+$$ Conditions: 
+$$ Laboratory Name: 
+$$ Sample Description: Agilent tune mix
+$$ Solvent Delay: 0.0000
+$$ Submitter: 
+$$ SampleID: 
+$$ Bottle Number: 
+$$ Plate Desc: 
+$$ Cal MS1 Static: ,T0
+$$ Cal MS2 Static: ,T0
+$$ Associated Datafile: 
+$$ Cal MS1 Static Params: 0,0,0.00,0.00,0.0,0.0,0.0,,
+$$ Cal MS1 Dynamic Params: 150,2500,0.0000,0.00,0.0,0.0,0.0,ESI_NaI_Pos,20250513_NaI_Calibration_Alex-20ö-
+$$ Cal MS1 Fast Params: 0,0,0.0000,0.00,0.0,0.0,0.0,,
+$$ Cal MS2 Static Params: 0,0,0.00,0.00,0.0,0.0,0.0,,
+$$ Cal MS2 Dynamic Params: 0,0,0.0000,0.00,0.0,0.0,0.0,,
+$$ Cal MS2 Fast Params: 0,0,0.0000,0.00,0.0,0.0,0.0,,
+$$ Cal Time: 15:44
+$$ Cal Date: 05/14/25
+$$ Analog Channel 1 Offset: 0.000
+$$ Analog Channel 2 Offset: 0.000
+$$ Analog Channel 3 Offset: 0.000
+$$ Analog Channel 4 Offset: 0.000
+$$ Mux Stream: 0
+$$ Cal Temperature: 0.0000000
+$$ Inlet Method: 
+$$ Inlet Prerun Method: 
+$$ Inlet Postrun Method: 
+$$ Inlet Switch Method: 
+$$ HPLC Method: 
+$$ MS Method: 
+$$ Tune Method: 
+$$ FractionLynx Method: 
+$$ Spare1: 
+$$ Spare2: 
+$$ Spare3: 
+$$ Spare4: 
+$$ Spare5: 
+$$ Reinjections: 0
+$$ PIC MRM Function:  
+$$ PIC Scan Function: 0,0
+$$ ScanWave Func List: 
+$$ Calibration File: 
+$$ Cal Function 1: 8.052321610215982e-3,9.997895496388773e-1,-1.136400120665074e-5,4.021386124490032e-7,-6.826562082418731e-9,4.450711821981108e-11,T1
+$$ Cal Function 2: 8.052321610215982e-3,9.997895496388773e-1,-1.136400120665074e-5,4.021386124490032e-7,-6.826562082418731e-9,4.450711821981108e-11,T1
+$$ Cal StdDev Function 1: 0.000000000000000e0
+$$ Cal StdDev Function 2: 0.000000000000000e0
+$$ Cal CoVar 1: 1.227944039129145e-7,-2.481882386661070e-8,5.031807955687525e-9,1.886439288840818e-9,-3.837298007892562e-10,2.937095744329563e-11,-6.785531922469517e-11,1.384837600783074e-11,-1.063918044144032e-12,3.868810988674899e-14,1.162475912112397e-12,-2.379917246815880e-13,1.834991120253004e-14,-6.698178388017570e-16,1.164105373593059e-17,-7.632539708961215e-15,1.567152104886657e-15,-1.212410514609749e-16,4.441676348736238e-18,-7.747892248694847e-20,5.175401509100221e-22
+$$ Cal CoVar 2: 1.227944039129145e-7,-2.481882386661070e-8,5.031807955687525e-9,1.886439288840818e-9,-3.837298007892562e-10,2.937095744329563e-11,-6.785531922469517e-11,1.384837600783074e-11,-1.063918044144032e-12,3.868810988674899e-14,1.162475912112397e-12,-2.379917246815880e-13,1.834991120253004e-14,-6.698178388017570e-16,1.164105373593059e-17,-7.632539708961215e-15,1.567152104886657e-15,-1.212410514609749e-16,4.441676348736238e-18,-7.747892248694847e-20,5.175401509100221e-22

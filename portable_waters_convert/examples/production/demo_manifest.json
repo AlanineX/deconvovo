@@ -1,0 +1,1083 @@
+{
+  "schema_version": 1,
+  "title": "Real Waters production demos",
+  "default_profile": "protein_adp",
+  "path_base": "manifest_directory",
+  "raw_path_base": "csv_directory",
+  "profiles": [
+    {
+      "id": "protein_adp",
+      "name": "Protein standards + ADP batch (5 real runs)",
+      "source": "protein_adp/raw",
+      "viewer_config": "protein_adp/viewer_config.json",
+      "calibrant_csv": "protein_adp/calibrants.csv",
+      "analyte_csv": "protein_adp/analytes.csv",
+      "description": "Five acquired RAW folders: three unfolded protein standards and two ADP solution conditions. Realistic batch and calibration QC example. Inherited 25-point calibration has a poor log-fit score (0.8741) and ADP application extrapolates; review is required before scientific use.",
+      "method": "direct",
+      "bundled": true,
+      "ccs_scope": "review_required_poor_fit_and_extrapolation",
+      "raw_path_base": "csv_directory",
+      "raw_count": 5,
+      "bytes": 204545466,
+      "recorded_calibration_quality": {
+        "valid_calibrant_peaks": 25,
+        "log_fit_r2": 0.8741173305186258,
+        "calibrant_peak_drift_time_range_ms": [
+          4.785,
+          8.745
+        ],
+        "analyte_rows": 34,
+        "analyte_peaks_exported": 34,
+        "analyte_peaks_below_calibrant_drift_range": 30,
+        "scientific_acceptance": "review_required_not_validated"
+      }
+    },
+    {
+      "id": "small_molecule",
+      "name": "Tune mix + Betaine (2 real runs)",
+      "source": "small_molecule/raw",
+      "viewer_config": "small_molecule/viewer_config.json",
+      "calibrant_csv": "small_molecule/calibrants.csv",
+      "analyte_csv": "small_molecule/analytes.csv",
+      "description": "Six Hexakis calibrant species and one independent Betaine acquisition. Betaine lies below the calibration drift-time range; this exercises extrapolation.",
+      "method": "direct",
+      "bundled": true,
+      "ccs_scope": "software_demonstration_extrapolation",
+      "raw_path_base": "csv_directory",
+      "raw_count": 2,
+      "bytes": 42652677,
+      "recorded_calibration_quality": {
+        "valid_calibrant_peaks": 6,
+        "log_fit_r2": 0.9999153566603055,
+        "calibrant_peak_drift_time_range_ms": [
+          4.235,
+          14.355
+        ],
+        "analyte_rows": 1,
+        "analyte_peaks_exported": 1,
+        "analyte_peaks_below_calibrant_drift_range": 1,
+        "scientific_acceptance": "review_required_not_validated"
+      }
+    },
+    {
+      "id": "hsp104",
+      "name": "Native HSP104 pair (2 real runs)",
+      "source": "hsp104/raw",
+      "viewer_config": "hsp104/viewer_config.json",
+      "description": "Two native HSP104 acquisitions with a high-mass display window and linked profiles. Convert and view; no compatible CCS calibration is bundled.",
+      "bundled": true,
+      "ccs_scope": "viewer_only",
+      "raw_count": 2,
+      "bytes": 67680456
+    }
+  ],
+  "acquisitions": [
+    {
+      "id": "20260216_UBQ_DEN_NEW_V1",
+      "raw_path": "protein_adp/raw/20260216_UBQ_DEN_NEW_V1.raw",
+      "profile": "protein_adp",
+      "role": "calibrant",
+      "source_dataset": "Protein standards and ADP batch",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260216",
+      "header": {
+        "Acquired Name": "20260216_UBQ_DEN_NEW_V1",
+        "Acquired Date": "28-May-2009",
+        "Acquired Time": "03:29:34",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": ""
+      },
+      "pusher_period_us": 110.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5800",
+        "IMS Wave Velocity (m/s)": "400",
+        "IMS Wave Height (V)": "25.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "200.00"
+      },
+      "bytes": 53426227,
+      "file_count": 14,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 20355480,
+          "sha256": "c69ce2365fd5da828a015a8a147a5629a3ef4d4b6b0d2ca9fa60171a3a7aee3f"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 2882,
+          "sha256": "07b8122b68d746e1df75d75874726fbb2600ade6a28f77f36774b3c4770604ed"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 21951,
+          "sha256": "3034be955ce99e15eab734ebf973bbbcccea1bc05fd8c2fe45375d80a46c1d3d"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 9454400,
+          "sha256": "3dc0ed11c99e3ac992595afd8815695d9c881e2e4d6b9e9e17ae820f0c8d761c"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "b0196acc268efb7ac121b5f2b11be15572cf7236825f57f0390acc3dd422dae3"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "a6201217873ac5b49266a6e051c60fd3e41a34aeed5633827994d5f75dee2d07"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2779,
+          "sha256": "9e8b4c1e712bb51df04a08ce1ca0a040681aea6009e6c8f36033afde6537d847"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 501,
+          "sha256": "01f483987d560d0b62f564147c2fd649d129ffc4e06e5bc98c270874915e036a"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5393,
+          "sha256": "f47d6c69e932b1920470a02b6e9f869762212baf89a326bf7d123454b7e0129f"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 15686469,
+          "sha256": "6ace9cb43ae174e84c082d258f75b9720b521515ca847b6bfd83b558591eb81b"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 316008,
+          "sha256": "343ae708a85694ad4879156cb02fa0a00b2ffe9deecfcf17b1fd6494146811aa"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 6578064,
+          "sha256": "9ec3cb034779ffae451575d8fb96f9faedce7588e181f109f88a0a34f4168183"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "1d2a30110c2cad130f04e201e6b33a61a87b7c81d5a316afefec70fc2b8a493e"
+        }
+      ]
+    },
+    {
+      "id": "20260216_CYTC_DEN_NEW_V1",
+      "raw_path": "protein_adp/raw/20260216_CYTC_DEN_NEW_V1.raw",
+      "profile": "protein_adp",
+      "role": "calibrant",
+      "source_dataset": "Protein standards and ADP batch",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260216",
+      "header": {
+        "Acquired Name": "20260216_CYTC_DEN_NEW_V1",
+        "Acquired Date": "28-May-2009",
+        "Acquired Time": "03:43:55",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": ""
+      },
+      "pusher_period_us": 110.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5800",
+        "IMS Wave Velocity (m/s)": "400",
+        "IMS Wave Height (V)": "25.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "200.00"
+      },
+      "bytes": 35564913,
+      "file_count": 14,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 13312648,
+          "sha256": "94d273876e300ba73cd1afb5074059c9e4afb56576235d301105b3e13e3c1340"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 1980,
+          "sha256": "3dec134e1a38c098a24d999b3e305371f4935e8f96a55cc0d1df98625611c877"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 15842,
+          "sha256": "5268da7652cca5e00c09e375a3ead346b9cb35d446cee8d50ec5b7516bafce69"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 6088256,
+          "sha256": "f8463ac1911e50a02af895ec11a0bb241e6cc72a9d49668caf8bcbcfceb33113"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "60d411cf66404f5882809649c774755b7ab025a6aa79134431ea1bf16bf3a898"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "a6201217873ac5b49266a6e051c60fd3e41a34aeed5633827994d5f75dee2d07"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2780,
+          "sha256": "c7cd21970212ee82bd05a8ef11345f684d5ab5ea8c6117e35ad16772d9e86830"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 378,
+          "sha256": "16d43df12318385034a4b84299c5ca01545de69b6b7801a0f3a915bcd264370b"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5393,
+          "sha256": "4de5fd53124ab59e5c8b742a06df7ae650c8d61f6fb258b48c5a862d3a637b89"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 10583955,
+          "sha256": "7ba5458361ebe03139ac93b68c1ed9ce5df491b0462a227ff13bcb5d5b0b1e07"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 217116,
+          "sha256": "057a61bb8ee9c47b9394a061cf04bc7727e715524c02209d63f7fae5ad47036b"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 4334265,
+          "sha256": "4a843bc3636b497a739321d309a97f4ab2dbf4194021a29c26e648042175be63"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "25327e5c8ce21457ac3db5bde80cfdb4b2d0ea909b70f0cbd6abadedeae752d5"
+        }
+      ]
+    },
+    {
+      "id": "20260216_MYO_DEN_NEW_V1",
+      "raw_path": "protein_adp/raw/20260216_MYO_DEN_NEW_V1.raw",
+      "profile": "protein_adp",
+      "role": "calibrant",
+      "source_dataset": "Protein standards and ADP batch",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260216",
+      "header": {
+        "Acquired Name": "20260216_MYO_DEN_NEW_V1",
+        "Acquired Date": "28-May-2009",
+        "Acquired Time": "03:37:52",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": ""
+      },
+      "pusher_period_us": 110.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5800",
+        "IMS Wave Velocity (m/s)": "400",
+        "IMS Wave Height (V)": "25.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "200.00"
+      },
+      "bytes": 41438439,
+      "file_count": 14,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 15523384,
+          "sha256": "31a69089e4b1650c74a1b67bfce9532752b4213528f97a851a4499ceae1f9420"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 1914,
+          "sha256": "deb8d9cca29f6792c353becb8dfbc2d9507d652ee26309ab5b9893fed2ce8ed1"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 15395,
+          "sha256": "9780f1e318a40699e6256a68c06dd83d0b97e1fadd176e86c8d17de62d386552"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 7966320,
+          "sha256": "177ce89c66d85029eae9f3e97a9c56b31abec884dc294d953b5b1a551e0a0bed"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "7283c3395bd8792864cefa9e8bcd1e8420a4152b58e1472616b8189acd8122b6"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "a6201217873ac5b49266a6e051c60fd3e41a34aeed5633827994d5f75dee2d07"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2779,
+          "sha256": "8d48b590193e345c5af5267188cf2cdb4a67b3f33fe65df7ff06cee4e0656f99"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 378,
+          "sha256": "0f6dffc73dbce17ce0a966eb212ce0ebab6d401f71b07875538758e1c1d18165"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5393,
+          "sha256": "ea7ca11dfd23088c86b2868930dec4257165c6067c9c73208daad4d04d0a09d8"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 11153340,
+          "sha256": "2917e920ce91514a29f4182899373283496570ce1eacc8c46bd17dce8e9d4a9a"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 209880,
+          "sha256": "dec27a6734171a56095464264d784f56489f1b527691dab95b788f39e20a1e3f"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 5557356,
+          "sha256": "1e23fec92f18ee31fbb8d686018196ccf2e06e12e4e3efd43b4ba13a6a6debdd"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "043baaf7f5c7d98ceaefbf0c27a9ebdf71aeab439a9a234fa05f2b8de7ce86a4"
+        }
+      ]
+    },
+    {
+      "id": "20260212_200UM_ADP_1M_EDDA_PH6_0",
+      "raw_path": "protein_adp/raw/20260212_200UM_ADP_1M_EDDA_PH6_0.raw",
+      "profile": "protein_adp",
+      "role": "analyte",
+      "source_dataset": "Protein standards and ADP batch",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260212",
+      "header": {
+        "Acquired Name": "20260212_200UM_ADP_1M_EDDA_PH6_0",
+        "Acquired Date": "24-May-2009",
+        "Acquired Time": "01:28:20",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": "ubq soft tune 80 IMS"
+      },
+      "pusher_period_us": 69.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5800",
+        "IMS Wave Velocity (m/s)": "400",
+        "IMS Wave Height (V)": "25.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "200.00"
+      },
+      "bytes": 9838735,
+      "file_count": 14,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 3173624,
+          "sha256": "aac5b3133351d1c6e70a41f56005142b2100bf3856e5bb16197298143dbe3f13"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 2552,
+          "sha256": "7135b5ec889978f3621a98fdff2792de636063dc61e23b488b06d48fc7f35cb0"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 19716,
+          "sha256": "5a286fcf2ed78248b3940216395fc236ab497b9a7216a25d1b44bd30af6f14cc"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 1589320,
+          "sha256": "937ae9f829b98593a7e0890c18fd453781f451a9964fb9c36ef7b852f085f31c"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "6d3be3d9d24133ea592af0cd4a1ce6cf3ae6a11bc141df313b8b2b61526fa163"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "b7c8feb88a864a56c3dc157cfc164d03a40f83e80f1211f55588efc13d549391"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2808,
+          "sha256": "4ad6af54c2ce7ed5ab37e732615aa6d1b5de106ef894b2ce174881ebfd0f4315"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 378,
+          "sha256": "8eb06ba23994a4a0d308e2e9843e194f5a80cf95d3f43f26b6716649eb33e92e"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5390,
+          "sha256": "9d95fd5e45570e65cd3a0354a4459e1fe5dc0924386dee3a418a6e4ae000f7d4"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 2680506,
+          "sha256": "6c7efcc3faec05782b50227411835f1f7843a552b2bc636e22cdc164f1d3bb30"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 279828,
+          "sha256": "9d8bb17b5364509f1188974ca4bc1d76e7f62d19de571f18f82c27fc25ef29e8"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 1082313,
+          "sha256": "92027eaaa71a911ffa0e0da97b6eca1c0f0618ca97a11ac5836d68cd82a9544b"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "3b89342788f9e4306362936e6945256d0af69f05c8078762767064e407425625"
+        }
+      ]
+    },
+    {
+      "id": "20260212_200UM_ADP_200MM_AMAC",
+      "raw_path": "protein_adp/raw/20260212_200UM_ADP_200MM_AMAC.raw",
+      "profile": "protein_adp",
+      "role": "analyte",
+      "source_dataset": "Protein standards and ADP batch",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260212",
+      "header": {
+        "Acquired Name": "20260212_200UM_ADP_200MM_AMAC",
+        "Acquired Date": "24-May-2009",
+        "Acquired Time": "01:09:37",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": "ubq soft tune 80 IMS"
+      },
+      "pusher_period_us": 69.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5800",
+        "IMS Wave Velocity (m/s)": "400",
+        "IMS Wave Height (V)": "25.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "200.00"
+      },
+      "bytes": 64277152,
+      "file_count": 14,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 22552456,
+          "sha256": "2e09361c6fdc56dcf5da05dd1f26338b75bc665a5557ec4497fa6027d2843919"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 2552,
+          "sha256": "dafd556c0babbf730fba0b57bef1fba81030397ee7ec26ce837cf39c8cb44ae6"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 19716,
+          "sha256": "9251f2885e792f3ab76a95a114083e0f43ff3d0db6865cb13a16ef65adf09d1a"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 9407960,
+          "sha256": "c78ee173de729bbdd1e3dd6abb2802c4409ddaa6dfe16993ac3e8bd474aecdac"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "c3ccb37dd5cccdb3bc89f8d06e7d7d52640027a42005cf80b795ae60f12bb4b5"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "b7c8feb88a864a56c3dc157cfc164d03a40f83e80f1211f55588efc13d549391"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2805,
+          "sha256": "00fc6191beac9b6e5052c82a6d5a789c7f090d68ae967a27e7eff3582a9c9a7a"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 378,
+          "sha256": "5e675b136992c3596207359afbe36cf251c986fc2f66ab8f37dfc5f4abc2e994"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5390,
+          "sha256": "eafd55314dd8dac78f20b40c00f9a886f55cd1b2d5bec53b3f246c3ddacc05f0"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 24189300,
+          "sha256": "5cfe106cadcac3384b5106ada9877f40e99a4ca3f3ecbfe7a9d882570b92e8a4"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 279828,
+          "sha256": "871bafc55686677c50b797af9805bcd438f3e82e15d9efdda1de5404858ff9a9"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 6814467,
+          "sha256": "74be01cd3cfd000121367bc40e4d5c5b3ee36472d9523ec0beaf93cc223864a4"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "772b9e452f51c84eaf0a082dafaad586b789c104f7adfb83f751fffd00b655bd"
+        }
+      ]
+    },
+    {
+      "id": "20260320_AGILENT_TUNE_MIX_V2",
+      "raw_path": "small_molecule/raw/20260320_AGILENT_TUNE_MIX_V2.raw",
+      "profile": "small_molecule",
+      "role": "calibrant",
+      "source_dataset": "Tune-mix and Betaine batch",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260320",
+      "header": {
+        "Acquired Name": "20260320_AGILENT_TUNE_MIX_V2",
+        "Acquired Date": "29-Jun-2009",
+        "Acquired Time": "01:40:40",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": "Agilent tune mix"
+      },
+      "pusher_period_us": 110.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5800",
+        "IMS Wave Velocity (m/s)": "400",
+        "IMS Wave Height (V)": "25.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "200.00"
+      },
+      "bytes": 29376444,
+      "file_count": 18,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 10682928,
+          "sha256": "1e0ab59b0f4ccfc07a70e110f33bdf60fcd9aba41ee9791e14e14a8c8548801d"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 3652,
+          "sha256": "da11a33f65c30f89dcc3cb0aecbdd95450255885be70638cf00cb044488997c1"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 27166,
+          "sha256": "1f775e00804c0b4f865172f1c44f99d64eedfb037b5f236b0d627e486e522832"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 3770744,
+          "sha256": "f2ac95b552a4b4639a4ddd427224db62234fa8f41ea4879eb8d3d989adaf0dcb"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "cb595783ffccf5a5dde7e8c4442a14e3471616301cdf82ecbe33f25e8279b663"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "792871f79bc03a5f50e25a713a8dd24bc995ffe915a6e286a0b74f7913234d52"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2800,
+          "sha256": "29e1283965eca87273e08c1d40994cfc8b210a16d1125ef64ece919d50a40b77"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 378,
+          "sha256": "c81ec565767319392cbe33d7318c60d614d577b3815b12237227b5638590b458"
+        },
+        {
+          "path": "_PROC001.DAT",
+          "bytes": 1262928,
+          "sha256": "c36e7986fd514fe3cc8da0b8ffbb9dbc27ed9605059f0a394a9b8b33483ceb52"
+        },
+        {
+          "path": "_PROC001.IDX",
+          "bytes": 22,
+          "sha256": "c9fe869b86a2f14873515c4954e3bd04046a629eb003c8f26e86ff784cc4b273"
+        },
+        {
+          "path": "_PROC001.SIG",
+          "bytes": 420976,
+          "sha256": "97bec4cf9b819272f05f551083dbc99492e3d56e90b51b13fb1e9259d7d6f3bf"
+        },
+        {
+          "path": "_PROC001.STS",
+          "bytes": 2581,
+          "sha256": "7cbe82ff67b89f675644b533d9603d0ba44c2954a8900a63db8d838c3c9adde0"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5392,
+          "sha256": "b1485daf004778f1081903fd6e8bf102b6f9263a795a910cc4c5e3f57368acc8"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 9099648,
+          "sha256": "11aa1f0c77887d56beadbfd641106c4ac682e4ff819fcb7bf588e4d07c9edefa"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 400428,
+          "sha256": "9faa8f4f101a7d9304cb74249bb8c7d6da079f995403637af2eb6958d7794efe"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 2694501,
+          "sha256": "5c327e9ebb7d070cdf6c214b0b37e623a0d97e4772e651ae2117379021ab2f88"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "ff06ed5cd18d1fd28da2582ad4272e9bbc4fd40b8084568ed0ff9fa3435bdf01"
+        }
+      ]
+    },
+    {
+      "id": "20260320_BETAINE_V2",
+      "raw_path": "small_molecule/raw/20260320_BETAINE_V2.raw",
+      "profile": "small_molecule",
+      "role": "analyte",
+      "source_dataset": "Tune-mix and Betaine batch",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260320",
+      "header": {
+        "Acquired Name": "20260320_BETAINE_V2",
+        "Acquired Date": "29-Jun-2009",
+        "Acquired Time": "02:08:59",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": "Agilent tune mix 118m/z"
+      },
+      "pusher_period_us": 110.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5800",
+        "IMS Wave Velocity (m/s)": "400",
+        "IMS Wave Height (V)": "25.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "200.00"
+      },
+      "bytes": 13276233,
+      "file_count": 18,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 3851120,
+          "sha256": "1342ec1e242208cf133eb7ac3eb248cc59b26e31f53424a428d00b79a9a35a24"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 1980,
+          "sha256": "a6131d6edc7f7455ffa179697856f147973a2ba083c5232ec4fc1bea22162d2b"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 15842,
+          "sha256": "c3c5de9ec3138f3dda72d126fdd97411e1708a499dada09b7b20b36c05f94dba"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 1796728,
+          "sha256": "42e74d2b4fdd40837e1ba325e95329a927e96ba33a0c1394d29d5bc82fe6b329"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "b13f18df579a5b7db5e43e628a179f0c7b89a6a016d1cb113f87b0cc318d78e7"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "792871f79bc03a5f50e25a713a8dd24bc995ffe915a6e286a0b74f7913234d52"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2798,
+          "sha256": "df3c904330f3f6cb72a312d39fb3aa8b677ab40693b1367bac3ca45374fddb36"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 378,
+          "sha256": "e33146eae8309a8b0491f4d586315c932f9105c7136b79b86368b1d1e9d20bd3"
+        },
+        {
+          "path": "_PROC001.DAT",
+          "bytes": 1247532,
+          "sha256": "755762c2e341bcc4e19741f634ba65e18ee5408fb1f2814622b77163f2e037d8"
+        },
+        {
+          "path": "_PROC001.IDX",
+          "bytes": 22,
+          "sha256": "3a5846d84fe0ef4b10e3af5f6e689eff8ee6b35d773736dd4c59f18921f2bd9a"
+        },
+        {
+          "path": "_PROC001.SIG",
+          "bytes": 415844,
+          "sha256": "ca1c25a01615b4f0997f7bbd6afd5c5b6ebf29d714284ab334594032593b7b91"
+        },
+        {
+          "path": "_PROC001.STS",
+          "bytes": 2581,
+          "sha256": "7cbe82ff67b89f675644b533d9603d0ba44c2954a8900a63db8d838c3c9adde0"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5389,
+          "sha256": "61e85327b6eacb8db276da3cd500989ce9165bb85e507bf345773c8cdf970e06"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 3518550,
+          "sha256": "1f8e6dfd49507e3336ba0b2d1993974f2a2c20af6930cefcd3957dd000bc3994"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 217116,
+          "sha256": "a112e0e5cfa3794e49d849c8dd7f9b4e577c79b5e31e0a431c0131fe1e772916"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 1198053,
+          "sha256": "470108fc045fd58ec511af4a9635d469ce80b8518e51159141d9fa90e1fc24af"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "b1f1236aab488dbb4f7411e410babe8144e9ef570abe5fb6a3562ca4cf36ca8b"
+        }
+      ]
+    },
+    {
+      "id": "20260901_HSP104_1_2_ATPYS_2",
+      "raw_path": "hsp104/raw/20260901_HSP104_1_2_ATPYS_2.raw",
+      "profile": "hsp104",
+      "role": "sample",
+      "source_dataset": "HSP104 paired acquisitions",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260901",
+      "header": {
+        "Acquired Name": "20260901_HSP104_1_2_ATPYS_2",
+        "Acquired Date": "01-Sep-2026",
+        "Acquired Time": "16:04:41",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": "10uM HSP104 30mM EDDA 30 ATPyS"
+      },
+      "pusher_period_us": 274.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5700",
+        "IMS Wave Velocity (m/s)": "500",
+        "IMS Wave Height (V)": "40.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "150.00"
+      },
+      "bytes": 29988106,
+      "file_count": 21,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 8374600,
+          "sha256": "48e6280d4552c783d97c45f636c73c35607d98245f46f9ea903755a753f50ae1"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 12848,
+          "sha256": "0007a76859d796b3d7f6d3f61f1a76a9b59a5af4608a9fb651b15402b63fda76"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 89448,
+          "sha256": "6ed9b8094ec95b138f1d7688977495a5c5eb46ac5e54dd73feb23d4b601aaf5e"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 4680224,
+          "sha256": "81df41e4b01b279f6a41394295cfb6849181c9434d2d556a62037240efaaf9a6"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "fb2c47f3450c8e4081738330fac5209556e6de80161325246fe0a6d192bf26c2"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "7dca15336b88a9482a4487920bab35c4381cc367911f6013b457518781f5c7d7"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2813,
+          "sha256": "5976fd07166e732a47191602a7229b33505a10214a13a290a86268eec05211d8"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 624,
+          "sha256": "4f14a4ba908de91a96379543f6b9d9f5115974de9b5a06512f200699f77f22d9"
+        },
+        {
+          "path": "_PROC001.DAT",
+          "bytes": 1767132,
+          "sha256": "e74700b6510ee559b8a1e6c6533b8fcee8f37d85f1d9b0a9b5051280e1cf068a"
+        },
+        {
+          "path": "_PROC001.IDX",
+          "bytes": 22,
+          "sha256": "966a7d18cff09ab71b064fd33494ed26044de8dbd93b4d2c7f27cce562cf157e"
+        },
+        {
+          "path": "_PROC001.SIG",
+          "bytes": 589044,
+          "sha256": "9102ec3591668a1fe438506c57c2df2e38080b31c1c1f55152f2c28d74d0141d"
+        },
+        {
+          "path": "_PROC001.STS",
+          "bytes": 2581,
+          "sha256": "7cbe82ff67b89f675644b533d9603d0ba44c2954a8900a63db8d838c3c9adde0"
+        },
+        {
+          "path": "_PROC002.DAT",
+          "bytes": 3979164,
+          "sha256": "e4284c0e1389a2938b1c4b81b32b1208a911f8a668115116bb302fbe8667384d"
+        },
+        {
+          "path": "_PROC002.IDX",
+          "bytes": 22,
+          "sha256": "6e4a62c38529fe571e03f4d734cea266cb0c48df306484ca606cff0b194c0952"
+        },
+        {
+          "path": "_PROC002.STS",
+          "bytes": 2581,
+          "sha256": "7cbe82ff67b89f675644b533d9603d0ba44c2954a8900a63db8d838c3c9adde0"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5633,
+          "sha256": "857c4d748b19982c069166612cb5c01121f928cf9d15e14c9fe1baf2761dbb96"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 4931910,
+          "sha256": "62e8ab60027a0ab48cff66326507a4e99a7ad2538f604fa519d227d138b48125"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 1408644,
+          "sha256": "e3938d15f94a1009acddea52236f5318199eca92d4e0df552442fcf5c94cd465"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 3138516,
+          "sha256": "10b7574de71a611500e56113faada28be3e9876adabd94c326917598a6973368"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "5d8f07da5d8cc38ac22f05189b1bea8685aee06a7a09297e9152a1d235bdf550"
+        }
+      ]
+    },
+    {
+      "id": "20260901_HSP104_6_2P5_ATPYS_1",
+      "raw_path": "hsp104/raw/20260901_HSP104_6_2P5_ATPYS_1.raw",
+      "profile": "hsp104",
+      "role": "sample",
+      "source_dataset": "HSP104 paired acquisitions",
+      "source_kind": "complete_real_Waters_RAW_directory",
+      "nominal_date_from_run_name": "20260901",
+      "header": {
+        "Acquired Name": "20260901_HSP104_6_2P5_ATPYS_1",
+        "Acquired Date": "01-Sep-2026",
+        "Acquired Time": "14:37:38",
+        "Instrument": "SYNAPT-G2#NotSet",
+        "Sample Description": "10uM HSP104 30mM EDDA 3.2 ATPyS"
+      },
+      "pusher_period_us": 274.0,
+      "instrument_settings": {
+        "EDC Delay Coefficient": "1.5700",
+        "IMS Wave Velocity (m/s)": "500",
+        "IMS Wave Height (V)": "40.0",
+        "IMS Gas Flow (mL/min)": "80.00",
+        "HeliumCellGasFlow": "150.00"
+      },
+      "bytes": 37692350,
+      "file_count": 21,
+      "files": [
+        {
+          "path": "_FUNC001.DAT",
+          "bytes": 12096752,
+          "sha256": "ace9c63e061c3217eebd15171a0934fe146133fd79574fc3de5cbe3232d849e4"
+        },
+        {
+          "path": "_FUNC001.IDX",
+          "bytes": 12848,
+          "sha256": "93530004e9c83dcbbbb1a690e17def00b957e9aa5dd885e29123057b33c73d9d"
+        },
+        {
+          "path": "_FUNC001.STS",
+          "bytes": 89448,
+          "sha256": "e83b59dc5aa1db5ab3dd21267fd43befef71fc08685a51e66ebb5cdbb8720031"
+        },
+        {
+          "path": "_FUNC002.DAT",
+          "bytes": 5757136,
+          "sha256": "0ea60d021e98e009001470c527915b42a075cceb0b377c5bcdcc736a781790a9"
+        },
+        {
+          "path": "_FUNC002.IDX",
+          "bytes": 4400,
+          "sha256": "3b5c17180d53b9cb75a68de5053729a57139984b1bc2c734f58fc96dd6a58658"
+        },
+        {
+          "path": "_FUNC002.STS",
+          "bytes": 32232,
+          "sha256": "b46e2656b8dde53e612fbed6bed929431cb18fecd8e57fb4df79c752cf50cc89"
+        },
+        {
+          "path": "_FUNCTNS.INF",
+          "bytes": 832,
+          "sha256": "7dca15336b88a9482a4487920bab35c4381cc367911f6013b457518781f5c7d7"
+        },
+        {
+          "path": "_HEADER.TXT",
+          "bytes": 2816,
+          "sha256": "29a8e0e5aabe5b91bc1671932d3c2c0707bbf6ddd729d53880ea30e35cacbb47"
+        },
+        {
+          "path": "_HISTORY.INF",
+          "bytes": 747,
+          "sha256": "7ec56d3f5cc53a8019fd23784542b45f88f527bad9039b75d411841d67b93b04"
+        },
+        {
+          "path": "_PROC001.DAT",
+          "bytes": 1771212,
+          "sha256": "726daa537a332148d43af5e9524bfc34544f5e9da693cec8f4771a3d0757d7e5"
+        },
+        {
+          "path": "_PROC001.IDX",
+          "bytes": 22,
+          "sha256": "66a4db1a0ec75d50ff94a528017845cd35be2b45669385fdbbf73e4e5f58eef9"
+        },
+        {
+          "path": "_PROC001.SIG",
+          "bytes": 590404,
+          "sha256": "3aad17eaaa11eba0ff9b0feaf625a51e41d7122a87b03901fc72e12cd091cd06"
+        },
+        {
+          "path": "_PROC001.STS",
+          "bytes": 2581,
+          "sha256": "1c77efd7e62e90b90b2d322e04a09834f64d69717f3a1bb36aa7d7eb8cc59b52"
+        },
+        {
+          "path": "_PROC002.DAT",
+          "bytes": 3851520,
+          "sha256": "3e534667c9afd5e769894ae5f96c2ae2570e49f4cf09689fdf0b098f25242226"
+        },
+        {
+          "path": "_PROC002.IDX",
+          "bytes": 22,
+          "sha256": "76e3db9b6c5abf97468e5e8336dd421f0ca4971b2a7f89626a5c3e54e4fe3a45"
+        },
+        {
+          "path": "_PROC002.STS",
+          "bytes": 2581,
+          "sha256": "1c77efd7e62e90b90b2d322e04a09834f64d69717f3a1bb36aa7d7eb8cc59b52"
+        },
+        {
+          "path": "_extern.inf",
+          "bytes": 5633,
+          "sha256": "f5251256430bba511e91ee16dbb2368e6e37febf2ef4e8e36354360c25dcf41f"
+        },
+        {
+          "path": "_func001.cdt",
+          "bytes": 7153488,
+          "sha256": "5d02128338b9d106a653cdc9602f0e648d45ab8adbf797e498b6dff4ebac776b"
+        },
+        {
+          "path": "_func001.ind",
+          "bytes": 1408644,
+          "sha256": "adf0565efd043b8aed874a8ddb326960fee6f590aad513d56d27a1cf8e7ca79b"
+        },
+        {
+          "path": "_func002.cdt",
+          "bytes": 3944196,
+          "sha256": "410cf3ee91f8c0f97c2b27b3477568f0d153b4bfe47f8f717288ab4d9079c01c"
+        },
+        {
+          "path": "_func002.ind",
+          "bytes": 964836,
+          "sha256": "bb7025398bde5fa9d2e421c87e71d0a08ae3e504468232c6f5143db8e51e9674"
+        }
+      ]
+    }
+  ],
+  "raw_count": 9,
+  "bytes": 314878599,
+  "configuration_rows": {
+    "protein_calibrants": 25,
+    "adp_targets": 34,
+    "small_calibrants": 6,
+    "betaine_targets": 1
+  },
+  "coverage_notes": [
+    "All RAW folders were copied complete, with per-file SHA256 checks against originals; no synthetic, subsetted, or truncated acquisition is included.",
+    "The filename prefixes are nominal dates. Some original protein/ADP headers report dates in 2009; those metadata are preserved and do not establish the filename chronology.",
+    "Protein and ADP acquisitions share major TWIMS settings but use different pusher periods. Each acquisition retains its own metadata.",
+    "HSP104 uses different TWIMS settings and must not use the included protein or tune-mix calibration.",
+    "Reference CCS values and target assignments are inherited from existing project CSVs. No new independent reference measurements or chemical identity validation are provided."
+  ]
+}

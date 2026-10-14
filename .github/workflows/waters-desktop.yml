@@ -1,0 +1,74 @@
+name: Waters offline desktop
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: ['waters-console-*']
+    paths:
+      - 'portable_waters_convert/**'
+      - 'deconvovo/**'
+      - 'gui/**'
+      - 'config/**'
+      - 'tests/test_waters*.py'
+      - '.github/workflows/waters-desktop.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
+      DECONVOVO_GUI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: portable_waters_convert/build/requirements.txt
+      - name: Install the tested Waters build dependencies
+        run: python -m pip install -r portable_waters_convert/build/requirements.txt
+      - name: Test conversion, viewer settings, workflow, and console
+        run: python -m pytest tests/test_waters_conversion.py tests/test_waters_viewer.py tests/test_waters_workflow.py tests/test_waters_workspace.py tests/test_waters_embedded_viewer.py -q
+      - name: Verify source RAW conversion and Windows laptop layout before freezing
+        shell: pwsh
+        run: |
+          python portable_waters_convert/build/launcher.py --smoke-test "$env:GITHUB_WORKSPACE\waters-build\source-validation"
+          $sourceSmokeExit = $LASTEXITCODE
+          $sourceReport = Get-Content waters-build\source-validation\native_smoke.json -Raw | ConvertFrom-Json
+          $sourceReport | Select-Object status, console_chart_at_1280x800, error, final_screenshot | ConvertTo-Json -Depth 5
+          if ($sourceSmokeExit -ne 0) { throw "Source application smoke test failed: $sourceSmokeExit" }
+      - name: Build WatersConsole with complete real demo acquisitions
+        run: python portable_waters_convert/build/build_native.py --output-dir waters-build
+      - name: Verify packaged real RAW conversion, offline export, and embedded GUI
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath .\waters-build\dist\WatersConsole\WatersConsole.exe -ArgumentList '--smoke-test', "$PWD\waters-build\validation" -PassThru -Wait
+          $nativeReport = Get-Content waters-build\validation\native_smoke.json -Raw | ConvertFrom-Json
+          $nativeReport | Select-Object status, console_chart_at_1280x800, error, final_screenshot | ConvertTo-Json -Depth 5
+          if ($process.ExitCode -ne 0) { throw "Frozen application smoke test failed: $($process.ExitCode)" }
+      - name: Zip the folder application
+        shell: pwsh
+        run: Compress-Archive -Path waters-build\dist\WatersConsole -DestinationPath waters-build\WatersConsole-win64.zip
+      - name: Upload verified Windows application
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatersConsole-win64
+          path: waters-build/WatersConsole-win64.zip
+          retention-days: 30
+      - name: Upload native validation and build provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatersConsole-win64-validation
+          path: |
+            waters-build/build_provenance.json
+            waters-build/validation/
+            waters-build/source-validation/
+          retention-days: 30

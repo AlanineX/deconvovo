@@ -57,12 +57,10 @@ def extract_drift_profile(im_data: pd.DataFrame, target_mz: float,
     max_bin = int(im_data["drift_bin"].max()) if not im_data.empty else 0
     if subset.empty:
         return np.zeros(max_bin + 1)
-    profile = np.zeros(max_bin + 1)
-    for _, row in subset.iterrows():
-        b = int(row["drift_bin"])
-        if 0 <= b <= max_bin:
-            profile[b] += row["intensity"]
-    return profile
+    bins = subset["drift_bin"].to_numpy(dtype=np.intp)
+    valid = (bins >= 0) & (bins <= max_bin)
+    return np.bincount(bins[valid], weights=subset["intensity"].to_numpy()[valid],
+                       minlength=max_bin + 1)
 
 
 def detect_peaks_in_profile(profile: np.ndarray, pusher_us: float,

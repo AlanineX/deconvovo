@@ -55,7 +55,7 @@ def _load_plot_config(config_path: Path | str | None = None) -> dict:
     if cfg_path.exists():
         import json
         try:
-            with open(cfg_path) as f:
+            with open(cfg_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
@@ -63,7 +63,7 @@ def _load_plot_config(config_path: Path | str | None = None) -> dict:
 
 
 def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Path,
-                  n_mz_bins: int | None = None, pusher_us: float | None = None,
+                  n_mz_bins: int | str | None = None, pusher_us: float | None = None,
                   config_path: Path | str | None = None):
     """Interactive 2D IM-MS viewer with linked marginals.
 
@@ -390,6 +390,10 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     # --- Build dropdown HTML from config ---
     def _smooth_options(presets, default):
         """Generate <option> tags for smoothing presets."""
+        presets = list(presets)
+        if not any({k: v for k, v in p.items() if k != "label"} == default
+                   for p in presets):
+            presets.append({**default, "label": "Custom"})
         opts = []
         for p in presets:
             d = {k: v for k, v in p.items() if k != "label"}
@@ -407,6 +411,9 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
         # entirely — otherwise "sqrt" gets mis-labeled as "√ratio" in
         # unrelated dropdowns (e.g. Intensity).
         legacy = {"0": "Off", "sqrt": "&radic;ratio", "full": "ratio"}
+        values = list(values)
+        if not any(str(v) == str(default) for v in values):
+            values.append(default)
         opts = []
         for v in values:
             sel = " selected" if str(v) == str(default) else ""
@@ -1206,6 +1213,11 @@ P.on('plotly_relayout', function(ed) {{
 }});
 </script></body></html>"""
 
+    # Embed the JavaScript matching the installed Plotly Python package so the
+    # viewer renders typed arrays correctly and opens without internet access.
+    from plotly.offline import get_plotlyjs
+    html = html.replace('<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>',
+                        '<script>' + get_plotlyjs() + '</script>')
     (out_dir / f"{run_name}_2d_imms.html").write_text(html, encoding="utf-8")
 
     # Standalone drift profile removed — the 2D viewer's drift panel

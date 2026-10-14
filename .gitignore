@@ -47,3 +47,9 @@ MS_WORKSPACE_ARCHITECTURE.md
 VISUALIZATION_TOOLS.md
 demo_data/output*
 docs/
+
+# Waters native builds and disposable viewer output
+waters-build/
+portable_waters_convert/build/artifacts/
+portable_waters_convert/sample_output/
+portable_waters_convert/output/

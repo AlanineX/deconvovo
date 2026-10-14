@@ -23,6 +23,25 @@ import os
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 
 
+def _failed(result: dict) -> bool:
+    """Accept both explicit errors and the status form used by converters."""
+    if result.get("error"):
+        return True
+    status = result.get("status", [])
+    if isinstance(status, str):
+        status = [status]
+    return any(str(item).lower().startswith(("error", "fail")) for item in status)
+
+
+def _dependency_error(args: dict, deps: list[int], results: dict) -> dict | None:
+    failed = [dep for dep in deps if _failed(results[dep])]
+    if not failed:
+        return None
+    message = "Skipped because dependencies failed: " + ", ".join(map(str, failed))
+    return {"run_name": args.get("run_name", ""), "error": message,
+            "status": [message]}
+
+
 class TaskQueue:
     def __init__(self, n_workers: int = 8):
         # Force sequential in GUI to prevent spawning new windows
@@ -51,6 +70,11 @@ class TaskQueue:
         # Sequential fallback
         if n_workers <= 1:
             for tid, fn, args, deps in self.tasks:
+                skipped = _dependency_error(args, deps, results)
+                if skipped:
+                    results[tid] = skipped
+                    completed.add(tid)
+                    continue
                 try:
                     results[tid] = fn(args)
                 except Exception as e:
@@ -65,6 +89,12 @@ class TaskQueue:
                 # Submit tasks whose dependencies are all completed
                 for tid, fn, args, deps in self.tasks:
                     if tid not in submitted and all(d in completed for d in deps):
+                        skipped = _dependency_error(args, deps, results)
+                        if skipped:
+                            results[tid] = skipped
+                            completed.add(tid)
+                            submitted.add(tid)
+                            continue
                         future = executor.submit(fn, args)
                         futures[future] = tid
                         submitted.add(tid)

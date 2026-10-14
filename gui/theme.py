@@ -15,13 +15,13 @@ import sys
 import tempfile
 
 # -- Accent + status colors (same in dark and light) --
-ACCENT = "#4a9eff"
-ACCENT_HOVER = "#6ab4ff"
-ACCENT_PRESSED = "#3580d8"
-ACCENT_DIM = "rgba(74,158,255,40)"
+ACCENT = "#8dcfc4"
+ACCENT_HOVER = "#a5ded5"
+ACCENT_PRESSED = "#73b6aa"
+ACCENT_DIM = "rgba(141,207,196,30)"
 SUCCESS = "#3ddc84"
-WARNING = "#ffb74d"
-ERROR = "#ef5350"
+WARNING = "#e9bc74"
+ERROR = "#e88883"
 
 # -- Fonts --
 FONT_FAMILY = "Segoe UI"
@@ -33,11 +33,11 @@ FONT_SIZE_CAPTION = 8
 
 # -- 4-layer dark palette --
 _DARK = dict(
-    L0="#16161e", L1="#1e1e2e", L2="#272740", L3="#323252",
-    border="#3a3a5a", border_hi="#4a4a6a",
-    text="#e0e0f0", text_dim="#7a7a9a", text_hi="#ffffff",
-    plot_bg="#16161e", plot_face="#1e1e2e", plot_hex="#1e1e2e",
-    grid="#2e2e4e", log_bg="#12121a",
+    L0="#101820", L1="#18222e", L2="#111a24", L3="#233b3d",
+    border="#2a3847", border_hi="#496373",
+    text="#e5edf5", text_dim="#8b9bad", text_hi="#ffffff",
+    plot_bg="#111a24", plot_face="#111a24", plot_hex="#18222e",
+    grid="#283442", log_bg="#111a24",
 )
 _LIGHT = dict(
     L0="#f0f0f5", L1="#ffffff", L2="#e8e8f0", L3="#d8d8e4",
@@ -73,12 +73,10 @@ def _ensure_checkmark_png() -> str:
     painter.drawLine(6, 11, 13, 4)
     painter.end()
 
-    # Write next to the exe (frozen) or in temp (dev)
-    if getattr(sys, 'frozen', False):
-        d = os.path.dirname(sys.executable)
-    else:
-        d = tempfile.gettempdir()
-    path = os.path.join(d, "dvv_checkmark.png")
+    # Installed application folders may be read-only. Give every process its
+    # own writable icon file so simultaneous app sessions cannot delete it.
+    with tempfile.NamedTemporaryFile(prefix="dvv_checkmark_", suffix=".png", delete=False) as icon:
+        path = icon.name
     pm.save(path, "PNG")
     _checkmark_path = path
     atexit.register(lambda p=path: os.remove(p) if os.path.isfile(p) else None)
@@ -146,7 +144,7 @@ def stylesheet(dark=True):
     /* ===== BUTTONS ===== */
     QPushButton {{
         background-color: {A};
-        color: {p['text_hi']};
+        color: #102c29;
         border: none;
         border-radius: 6px;
         padding: 8px 24px;
@@ -232,7 +230,7 @@ def stylesheet(dark=True):
         font-size: {FONT_SIZE_SMALL}pt;
     }}
     QTableWidget::item {{ padding: 4px 8px; }}
-    QTableWidget::item:selected {{ background-color: {A}; color: {p['text_hi']}; }}
+    QTableWidget::item:selected {{ background-color: {p['L3']}; color: {p['text_hi']}; }}
     QHeaderView::section {{
         background-color: {p['L3']};
         color: {p['text_hi']};
@@ -355,5 +353,53 @@ def stylesheet(dark=True):
         border-color: {A};
         background-color: {A};
         image: url("{chk}");
+    }}
+
+    QWidget#appHeader {{
+        background-color: {p['L0']};
+        border-bottom: 1px solid {p['border']};
+    }}
+    QListWidget#modeNav {{
+        background: transparent;
+        border: none;
+        outline: none;
+        font-size: 9pt;
+    }}
+    QListWidget#modeNav::item {{
+        background: transparent;
+        color: {p['text_dim']};
+        padding: 7px 14px;
+        margin: 4px;
+        border-radius: 5px;
+    }}
+    QListWidget#modeNav::item:selected {{
+        background: {p['L3']};
+        color: {A};
+    }}
+    QWidget#appFooter {{
+        border-top: 1px solid {p['border']};
+        background: {p['L0']};
+    }}
+    QWidget#consoleCard, QFrame#consoleCard {{
+        background: {p['L1']};
+        border: 1px solid {p['border']};
+        border-radius: 8px;
+    }}
+    QLabel[eyebrow="true"] {{
+        color: {p['text_dim']};
+        font-size: 8pt;
+        font-weight: 600;
+    }}
+    QLabel[chip="true"] {{
+        background: {p['L3']};
+        color: {A};
+        border-radius: 10px;
+        padding: 5px 10px;
+        font-size: 9pt;
+    }}
+    QPushButton[compact="true"] {{
+        padding: 5px 10px;
+        min-height: 14px;
+        font-size: 9pt;
     }}
     """

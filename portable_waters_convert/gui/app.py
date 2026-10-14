@@ -1,0 +1,174 @@
+"""DeconVoVo desktop shell for the Instrument Console workspaces."""
+from __future__ import annotations
+
+import sys
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtWidgets import (
+    QApplication, QHBoxLayout, QLabel, QListView, QListWidget,
+    QMainWindow, QPushButton, QSizePolicy, QSplitter, QStackedWidget,
+    QVBoxLayout, QWidget,
+)
+
+from gui.theme import ACCENT, ERROR, FONT_FAMILY, TEXT_DIM, WARNING, stylesheet
+from gui.widgets.log_panel import LogPanel
+from gui.panels.waters_workspace import WatersWorkspacePanel
+
+PANELS = [
+    ("Waters IM-MS", "Process runs, inspect viewers, and review CCS", WatersWorkspacePanel),
+]
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self._dark = True
+        self.setWindowTitle("DeconVoVo · Instrument Console")
+        self.setMinimumSize(1100, 700)
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            bounds = screen.availableGeometry()
+            self.resize(min(1440, int(bounds.width() * 0.92)), min(960, int(bounds.height() * 0.92)))
+        else:
+            self.resize(1440, 900)
+
+        central = QWidget()
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("appHeader")
+        header.setFixedHeight(58)
+        row = QHBoxLayout(header)
+        row.setContentsMargins(20, 8, 20, 8)
+        row.setSpacing(14)
+        brand = QLabel("DeconVoVo")
+        brand.setStyleSheet(f"font-size: 14pt; font-weight: 700; color: {ACCENT};")
+        row.addWidget(brand)
+        self.nav = QListWidget()
+        self.nav.setObjectName("modeNav")
+        self.nav.setFlow(QListView.LeftToRight)
+        self.nav.setWrapping(False)
+        self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.nav.setFixedHeight(40)
+        self.nav.setFixedWidth(350 if len(PANELS) > 1 else 160)
+        for name, description, _ in PANELS:
+            self.nav.addItem(name)
+            self.nav.item(self.nav.count() - 1).setToolTip(description)
+        row.addWidget(self.nav)
+        row.addStretch()
+        offline = QLabel("LOCAL WORKSPACE · OFFLINE VIEWERS")
+        offline.setProperty("eyebrow", True)
+        row.addWidget(offline)
+        self.btn_theme = QPushButton("Light mode")
+        self.btn_theme.setProperty("secondary", True)
+        self.btn_theme.setProperty("compact", True)
+        self.btn_theme.clicked.connect(self._toggle_theme)
+        row.addWidget(self.btn_theme)
+        layout.addWidget(header)
+
+        self.stack = QStackedWidget()
+        self.log_panel = LogPanel()
+        self.log_panel.setMinimumHeight(110)
+        self.log_panel.hide()
+        self._panels = []
+        for _name, _description, cls in PANELS:
+            panel = cls(log_panel=self.log_panel)
+            self._panels.append(panel)
+            self.stack.addWidget(panel)
+        self.body = QSplitter(Qt.Vertical)
+        self.body.setChildrenCollapsible(False)
+        self.body.addWidget(self.stack)
+        self.body.addWidget(self.log_panel)
+        self.body.setStretchFactor(0, 1)
+        self.body.setStretchFactor(1, 0)
+        layout.addWidget(self.body, 1)
+
+        footer = QWidget()
+        footer.setObjectName("appFooter")
+        footer.setFixedHeight(38)
+        bottom = QHBoxLayout(footer)
+        bottom.setContentsMargins(20, 4, 20, 4)
+        self.status_text = QLabel("Ready · choose a batch or load a real acquisition demo")
+        self.status_text.setTextFormat(Qt.PlainText)
+        self.status_text.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.status_text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 9pt;")
+        bottom.addWidget(self.status_text, 1)
+        self.btn_log = QPushButton("Activity log")
+        self.btn_log.setProperty("secondary", True)
+        self.btn_log.setProperty("compact", True)
+        self.btn_log.setCheckable(True)
+        self.btn_log.toggled.connect(self._show_log)
+        bottom.addWidget(self.btn_log)
+        from gui import __version__
+        version = QLabel(f"v{__version__}")
+        version.setProperty("eyebrow", True)
+        bottom.addWidget(version)
+        layout.addWidget(footer)
+        self.log_panel._sig.message.connect(self._status_message)
+        self.nav.currentRowChanged.connect(self._switch_panel)
+        self.nav.setCurrentRow(next(i for i, entry in enumerate(PANELS) if entry[2] is WatersWorkspacePanel))
+
+    def _show_log(self, visible):
+        self.log_panel.setVisible(visible)
+        self.btn_log.setText("Hide activity log" if visible else "Activity log")
+        if visible:
+            self.body.setSizes([max(400, self.body.height() - 160), 160])
+
+    def _status_message(self, message, level):
+        if not message:
+            return
+        self.status_text.setText(message.splitlines()[0])
+        self.status_text.setToolTip(message)
+        color = ERROR if level == "error" else WARNING if level == "warning" else TEXT_DIM
+        self.status_text.setStyleSheet(f"color: {color}; font-size: 9pt;")
+        if level == "error":
+            self.btn_log.setChecked(True)
+
+    def _switch_panel(self, index):
+        if 0 <= index < self.stack.count():
+            self.stack.setCurrentIndex(index)
+            self.log_panel.log(f"{PANELS[index][0]} workspace", "info")
+
+    def _toggle_theme(self):
+        self._dark = not self._dark
+        QApplication.instance().setStyleSheet(stylesheet(dark=self._dark))
+        self.btn_theme.setText("Light mode" if self._dark else "Dark mode")
+        from gui.widgets.plot_canvas import PlotCanvas, set_plot_dark
+        set_plot_dark(self._dark)
+        for canvas in self.findChildren(PlotCanvas):
+            canvas.refresh()
+
+    def get_panel(self, index):
+        return self._panels[index]
+
+    def closeEvent(self, event):
+        if any(isinstance(panel, WatersWorkspacePanel) and panel.is_busy for panel in self._panels):
+            self.log_panel.log("A Waters job is running. Wait for it to finish before closing.", "warning")
+            event.ignore()
+            return
+        for panel in self._panels:
+            panel.close()
+        super().closeEvent(event)
+
+
+def main():
+    from gui.widgets.worker import set_gui_mode
+    set_gui_mode()
+    app = QApplication(sys.argv)
+    app.setOrganizationName("DeconVoVo")
+    app.setApplicationName("DeconVoVo Waters")
+    app.setStyle("Fusion")
+    app.setStyleSheet(stylesheet(dark=True))
+    app.setFont(QFont(FONT_FAMILY, 10))
+    window = MainWindow()
+    window.show()
+    raise SystemExit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

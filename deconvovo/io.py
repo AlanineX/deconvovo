@@ -92,9 +92,21 @@ def find_pusher_for_run(data_dir: Path, run_name: str,
             if pp is not None:
                 return pp
     if raw_dir:
-        rp = raw_dir / f"{run_name}.raw"
+        rp = raw_dir if raw_dir.suffix.lower() == ".raw" and raw_dir.stem == run_name else raw_dir / f"{run_name}.raw"
         if rp.is_dir():
             pp = find_pusher_period(rp)
             if pp is not None:
                 return pp
+    # A workspace's converted tables retain the original acquisition location,
+    # so reopening results can keep drift-time units without reentering paths.
+    import json
+    settings = data_dir / "conversion_settings.json"
+    if settings.is_file():
+        try:
+            metadata = json.loads(settings.read_text(encoding="utf-8")).get(run_name, {})
+            source = metadata.get("raw_source")
+            if source and Path(source).is_dir():
+                return find_pusher_period(Path(source))
+        except (OSError, ValueError, TypeError):
+            pass
     return None

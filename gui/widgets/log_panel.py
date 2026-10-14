@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import html
 from datetime import datetime
 
 from PySide6.QtWidgets import QTextEdit, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QLabel
@@ -55,7 +56,7 @@ class LogPanel(QWidget):
         c = _COLORS.get(level, TEXT_DIM)
         ts = datetime.now().strftime("%H:%M:%S")
         self.text.append(f'<span style="color:{TEXT_DIM}">{ts}</span> '
-                         f'<span style="color:{c}">{msg}</span>')
+                         f'<span style="color:{c}">{html.escape(str(msg))}</span>')
         self.text.verticalScrollBar().setValue(self.text.verticalScrollBar().maximum())
 
 

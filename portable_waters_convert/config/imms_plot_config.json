@@ -1,0 +1,680 @@
+{
+  "_comment": "Default settings copied for the portable Waters workflow.",
+  "_comment2": "Pass --config config/imms_plot_config.json; adjust defaults, presets and initial_view.",
+  "_comment3": "Custom presets: add entries to the preset lists; each needs method + params.",
+  "defaults": {
+    "smooth_2d": {
+      "method": "gaussian",
+      "sigma": 0.1,
+      "sigma_dr": 0.12
+    },
+    "scale": "1",
+    "smooth_drift": {
+      "method": "gaussian",
+      "sigma": 1
+    },
+    "noise_2d": 0.5,
+    "denoise": 5,
+    "noise_drift": 0,
+    "noise_mz": 0,
+    "mz_bins": 3200,
+    "colormap": "Viridis",
+    "render": "off",
+    "z_scale": "log10"
+  },
+  "presets": {
+    "smooth_2d": [
+      {
+        "method": "raw",
+        "label": "Raw"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 0.05,
+        "sigma_dr": 0.1,
+        "label": "m/z 0.05 Da (sharp)"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 0.1,
+        "sigma_dr": 0.12,
+        "label": "m/z 0.1 Da"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 0.25,
+        "sigma_dr": 0.15,
+        "label": "m/z 0.25 Da (merge iso)"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 0.5,
+        "sigma_dr": 0.18,
+        "label": "m/z 0.5 Da (merge iso)"
+      },
+      {
+        "method": "sg",
+        "w": 7,
+        "k": 2,
+        "label": "SG(7,2)"
+      },
+      {
+        "method": "ma",
+        "w": 5,
+        "label": "Mov Avg 5"
+      }
+    ],
+    "scale": [
+      "0.5",
+      "1",
+      "2",
+      "sqrt",
+      "full"
+    ],
+    "smooth_drift": [
+      {
+        "method": "raw",
+        "label": "Raw"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 0.3,
+        "label": "Gauss \u03c3=0.3"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 0.6,
+        "label": "Gauss \u03c3=0.6"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 1,
+        "label": "Gauss \u03c3=1"
+      },
+      {
+        "method": "gaussian",
+        "sigma": 2,
+        "label": "Gauss \u03c3=2"
+      },
+      {
+        "method": "sg",
+        "w": 3,
+        "k": 2,
+        "label": "SG(3,2)"
+      },
+      {
+        "method": "sg",
+        "w": 5,
+        "k": 2,
+        "label": "SG(5,2)"
+      },
+      {
+        "method": "sg",
+        "w": 7,
+        "k": 2,
+        "label": "SG(7,2)"
+      },
+      {
+        "method": "ma",
+        "w": 3,
+        "label": "Mov Avg 3"
+      },
+      {
+        "method": "ma",
+        "w": 5,
+        "label": "Mov Avg 5"
+      }
+    ],
+    "noise_2d": [
+      0,
+      0.5,
+      1,
+      2,
+      3,
+      5,
+      10,
+      15,
+      20,
+      30
+    ],
+    "noise_drift": [
+      0,
+      0.5,
+      1,
+      3,
+      5
+    ],
+    "noise_mz": [
+      0,
+      0.5,
+      1,
+      3,
+      5
+    ],
+    "mz_bins": [
+      "native",
+      200,
+      400,
+      800,
+      1600,
+      3200,
+      6400,
+      12800
+    ],
+    "drift_bins": [
+      "native",
+      50,
+      100,
+      200,
+      400
+    ],
+    "render": [
+      "off",
+      "fast",
+      "best"
+    ],
+    "z_scale": [
+      "linear",
+      "sqrt",
+      "cbrt",
+      "p4",
+      "p5",
+      "log2",
+      "log10"
+    ],
+    "denoise": [
+      "off",
+      1,
+      5,
+      10,
+      20,
+      50
+    ],
+    "colormap": [
+      {
+        "name": "W-Rainbow",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.06,
+            "#e3ecf7"
+          ],
+          [
+            0.2,
+            "#3b6fd6"
+          ],
+          [
+            0.36,
+            "#1fb6c4"
+          ],
+          [
+            0.52,
+            "#41c451"
+          ],
+          [
+            0.66,
+            "#f4e21a"
+          ],
+          [
+            0.8,
+            "#f59000"
+          ],
+          [
+            0.92,
+            "#e0301e"
+          ],
+          [
+            1,
+            "#7d1014"
+          ]
+        ]
+      },
+      {
+        "name": "W-Spectral",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.06,
+            "#eef7fb"
+          ],
+          [
+            0.2,
+            "#3288bd"
+          ],
+          [
+            0.38,
+            "#66c2a5"
+          ],
+          [
+            0.54,
+            "#a6d96a"
+          ],
+          [
+            0.66,
+            "#fee08b"
+          ],
+          [
+            0.8,
+            "#fdae61"
+          ],
+          [
+            0.9,
+            "#f46d43"
+          ],
+          [
+            1,
+            "#9e0142"
+          ]
+        ]
+      },
+      {
+        "name": "W-Jet",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.05,
+            "#e6eeff"
+          ],
+          [
+            0.18,
+            "#0d47d6"
+          ],
+          [
+            0.35,
+            "#1ea8e0"
+          ],
+          [
+            0.5,
+            "#2ecf4f"
+          ],
+          [
+            0.66,
+            "#f6f02a"
+          ],
+          [
+            0.82,
+            "#f7860c"
+          ],
+          [
+            1,
+            "#b00020"
+          ]
+        ]
+      },
+      {
+        "name": "W-Ocean",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.1,
+            "#e0f3f8"
+          ],
+          [
+            0.28,
+            "#abd9e9"
+          ],
+          [
+            0.46,
+            "#74add1"
+          ],
+          [
+            0.64,
+            "#4575b4"
+          ],
+          [
+            0.82,
+            "#313695"
+          ],
+          [
+            1,
+            "#0a0a3c"
+          ]
+        ]
+      },
+      {
+        "name": "W-Sunset",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.08,
+            "#fff3da"
+          ],
+          [
+            0.24,
+            "#fee08b"
+          ],
+          [
+            0.42,
+            "#fdae61"
+          ],
+          [
+            0.58,
+            "#f46d43"
+          ],
+          [
+            0.74,
+            "#d53e4f"
+          ],
+          [
+            0.88,
+            "#9e0142"
+          ],
+          [
+            1,
+            "#4a0033"
+          ]
+        ]
+      },
+      {
+        "name": "W-Viridis",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.08,
+            "#e6f0e0"
+          ],
+          [
+            0.26,
+            "#a8d99b"
+          ],
+          [
+            0.46,
+            "#4ec36b"
+          ],
+          [
+            0.62,
+            "#1f9e89"
+          ],
+          [
+            0.76,
+            "#2a788e"
+          ],
+          [
+            0.9,
+            "#3e4a89"
+          ],
+          [
+            1,
+            "#440154"
+          ]
+        ]
+      },
+      {
+        "name": "W-Plasma",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.08,
+            "#f6e2ee"
+          ],
+          [
+            0.26,
+            "#f3a6c0"
+          ],
+          [
+            0.42,
+            "#e3608a"
+          ],
+          [
+            0.58,
+            "#cb3e6f"
+          ],
+          [
+            0.72,
+            "#a01a93"
+          ],
+          [
+            0.86,
+            "#5c01a6"
+          ],
+          [
+            1,
+            "#0d0887"
+          ]
+        ]
+      },
+      {
+        "name": "W-Terrain",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.1,
+            "#e3f0e0"
+          ],
+          [
+            0.3,
+            "#7ec77e"
+          ],
+          [
+            0.5,
+            "#cfe08b"
+          ],
+          [
+            0.65,
+            "#e8d18a"
+          ],
+          [
+            0.8,
+            "#b5895a"
+          ],
+          [
+            1,
+            "#5a3a1a"
+          ]
+        ]
+      },
+      "Viridis",
+      "Plasma",
+      "Inferno",
+      "Magma",
+      "Reds",
+      "Greens",
+      "Blues",
+      "Greys",
+      "RdBu",
+      "PRGn",
+      "Bluered",
+      "Rainbow",
+      "RdPu",
+      "BuPu",
+      "GnBu",
+      "PuBu",
+      "YlGnBu",
+      "BuGn",
+      "YlGn",
+      "ocean",
+      "gist_earth",
+      "terrain",
+      "gist_stern",
+      "gnuplot",
+      "gnuplot2",
+      "CMRmap",
+      "cubehelix",
+      "brg",
+      "gist_rainbow",
+      "rainbow",
+      "jet",
+      "turbo",
+      "nipy_spectral",
+      "gist_ncar",
+      "Paired",
+      "flag",
+      "coolwarm",
+      "Spectral",
+      {
+        "name": "W-Red",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.05,
+            "#fff5f5"
+          ],
+          [
+            0.15,
+            "#ffcccc"
+          ],
+          [
+            0.3,
+            "#ff6666"
+          ],
+          [
+            0.6,
+            "#dd0000"
+          ],
+          [
+            1,
+            "#660000"
+          ]
+        ]
+      },
+      {
+        "name": "W-Blue",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.05,
+            "#f5f5ff"
+          ],
+          [
+            0.15,
+            "#ccccff"
+          ],
+          [
+            0.3,
+            "#6666ff"
+          ],
+          [
+            0.6,
+            "#0000dd"
+          ],
+          [
+            1,
+            "#000066"
+          ]
+        ]
+      },
+      {
+        "name": "W-Green",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.05,
+            "#f5fff5"
+          ],
+          [
+            0.15,
+            "#ccffcc"
+          ],
+          [
+            0.3,
+            "#44cc44"
+          ],
+          [
+            0.6,
+            "#008800"
+          ],
+          [
+            1,
+            "#003300"
+          ]
+        ]
+      },
+      {
+        "name": "W-Purple",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.05,
+            "#f8f5ff"
+          ],
+          [
+            0.15,
+            "#ddccff"
+          ],
+          [
+            0.3,
+            "#9955ee"
+          ],
+          [
+            0.6,
+            "#6600bb"
+          ],
+          [
+            1,
+            "#330066"
+          ]
+        ]
+      },
+      {
+        "name": "W-Hot",
+        "scale": [
+          [
+            0,
+            "#ffffff"
+          ],
+          [
+            0.05,
+            "#fffff0"
+          ],
+          [
+            0.15,
+            "#ffee44"
+          ],
+          [
+            0.35,
+            "#ff8800"
+          ],
+          [
+            0.6,
+            "#dd0000"
+          ],
+          [
+            1,
+            "#440000"
+          ]
+        ]
+      }
+    ]
+  },
+  "figure": {
+    "font_size": 20,
+    "width": 1190,
+    "height": 680
+  }
+}

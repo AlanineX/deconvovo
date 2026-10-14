@@ -17,6 +17,7 @@ import json
 import logging
 import math
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -39,17 +40,43 @@ _log = logging.getLogger("ccs_calibrate")
 
 def _setup_logging(out_dir: Path) -> None:
     _log.setLevel(logging.DEBUG)
-    _log.handlers.clear()
+    # Keep the GUI's log bridge while replacing our own output handlers.
+    for handler in list(_log.handlers):
+        if getattr(handler, "_waters_output_handler", False):
+            _log.removeHandler(handler)
+            handler.close()
     fmt = logging.Formatter("%(levelname)s: %(message)s")
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.INFO)
     ch.setFormatter(fmt)
+    ch._waters_output_handler = True
     _log.addHandler(ch)
     fh = logging.FileHandler(out_dir / "warnings.log", mode="w")
     fh.setLevel(logging.WARNING)
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s",
                                        datefmt="%Y-%m-%d %H:%M:%S"))
+    fh._waters_output_handler = True
     _log.addHandler(fh)
+
+
+def _read_species_csv(csv_path: Path) -> pd.DataFrame:
+    """Resolve portable acquisition paths beside the table, retaining old cwd paths."""
+    csv_path = Path(csv_path).resolve()
+    frame = pd.read_csv(csv_path)
+    if "raw_path" not in frame.columns:
+        raise ValueError(f"Missing raw_path column in {csv_path.name}")
+
+    def resolve(value):
+        path = Path(str(value)).expanduser()
+        if path.is_absolute():
+            return str(path)
+        relative = csv_path.parent / path
+        if relative.is_dir() or not path.is_dir():
+            return str(relative.resolve())
+        return str(path.resolve())
+
+    frame["raw_path"] = frame["raw_path"].map(resolve)
+    return frame
 
 
 def _resolve_mz_window(row, mw, z):
@@ -74,7 +101,7 @@ def _find_text_file(data_dirs: list[Path], filename: str) -> Path | None:
     return None
 
 
-def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
+def _run_calibration(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
         analyte_csv: Path | None = None,
         conversion_method: str = "direct") -> dict:
     """Run CCS calibration.
@@ -97,7 +124,9 @@ def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
         raise FileNotFoundError("No valid data directories found.\n"
                                 "Convert .raw files first, then point --data-dir at the output.")
 
-    cal_df = pd.read_csv(calibrant_csv)
+    if analyte_csv is not None and not Path(analyte_csv).is_file():
+        raise FileNotFoundError(f"Analyte table does not exist: {analyte_csv}")
+    cal_df = _read_species_csv(calibrant_csv)
     _log.info("=== CCS Calibration ===")
     _log.info("  Calibrant CSV: %s (%d rows)", calibrant_csv, len(cal_df))
     _log.info("  Data dirs: %s", [str(d) for d in data_dirs])
@@ -125,7 +154,11 @@ def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
                 pusher_cache[raw_path] = pp
             params = read_extern_inf(rp)
             if "EDC Delay Coefficient" in params:
-                edc_coeff = float(params["EDC Delay Coefficient"])
+                value = float(params["EDC Delay Coefficient"])
+                if edc_coeff is not None and not math.isclose(edc_coeff, value, rel_tol=1e-6, abs_tol=1e-6):
+                    raise ValueError("Calibrant acquisitions have different EDC delay coefficients; "
+                                     "use standards acquired under matching instrument settings")
+                edc_coeff = value
     if edc_coeff is None:
         raise ValueError("Cannot read EDC Delay Coefficient from any .raw directory. "
                          "Check raw_path column in calibrant CSV.")
@@ -222,7 +255,7 @@ def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
     # --- Apply to analytes ---
     if analyte_csv and analyte_csv.exists():
         _log.info("--- Applying CCS to analytes ---")
-        ana_df = pd.read_csv(analyte_csv)
+        ana_df = _read_species_csv(analyte_csv)
         defaults_ana = {"mz_window": "auto", "min_ms_intensity": 50.0}
         for col, default in defaults_ana.items():
             if col not in ana_df.columns:
@@ -337,6 +370,39 @@ def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
     _log.info("  R²: %.5f, Points: %d",
               cal["r2_lnln"], cal["n_points"])
     return cal
+
+
+def run(out_dir: Path, data_dirs: Path | list[Path], calibrant_csv: Path,
+        analyte_csv: Path | None = None,
+        conversion_method: str = "direct") -> dict:
+    """Publish a complete new CCS result set; keep the previous one on failure."""
+    out_dir = Path(out_dir).resolve()
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    if out_dir.exists() and not out_dir.is_dir():
+        raise ValueError(f"CCS output is not a directory: {out_dir}")
+    with tempfile.TemporaryDirectory(prefix=".waters-ccs-", dir=out_dir.parent) as temporary:
+        staged = Path(temporary) / "results"
+        try:
+            calibration = _run_calibration(staged, data_dirs, calibrant_csv,
+                                           analyte_csv, conversion_method)
+        finally:
+            # Windows cannot rename/delete an open warnings.log file.
+            for handler in list(_log.handlers):
+                if getattr(handler, "_waters_output_handler", False):
+                    _log.removeHandler(handler)
+                    handler.close()
+        previous = None
+        if out_dir.exists():
+            previous_root = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}-previous-", dir=out_dir.parent))
+            previous = previous_root / out_dir.name
+            out_dir.rename(previous)
+        try:
+            staged.rename(out_dir)
+        except OSError:
+            if previous is not None:
+                previous.rename(out_dir)
+            raise
+    return calibration
 
 
 def main() -> None:

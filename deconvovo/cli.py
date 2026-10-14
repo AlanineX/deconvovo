@@ -23,11 +23,18 @@ def _convert_one(args: dict) -> dict:
     out_dir = Path(args["out_dir"])
     work_dir = Path(args["work_dir"])
     result = {"run_name": run_name, "step": "convert", "status": []}
-    if (out_dir / f"{run_name}_ms.txt").exists():
+    outputs = [out_dir / f"{run_name}_{kind}.txt" for kind in ("ms", "im")]
+    if args.get("skip_existing", False) and all(
+            path.is_file() and path.stat().st_size > 0 for path in outputs):
         result["status"].append("cached")
         return result
     try:
-        wc.convert_one_raw(raw_dir, out_dir, work_dir)
+        info = wc.convert_one_raw(raw_dir, out_dir, work_dir)
+        if info.get("status") != "complete":
+            message = info.get("status", "unknown converter status")
+            if info.get("stderr"):
+                message += f": {info['stderr']}"
+            raise RuntimeError(message)
         result["status"].append("OK")
     except Exception as e:
         result["error"] = str(e)
@@ -216,6 +223,7 @@ def main() -> None:
             t_conv = q.add(_convert_one, {
                 "run_name": rn, "raw_dir": str(raw_dir),
                 "out_dir": str(data_dir), "work_dir": str(work_dir),
+                "skip_existing": args.skip_existing,
             })
             deps = [t_conv]
         else:
@@ -272,6 +280,8 @@ def main() -> None:
 
     n_files = sum(1 for _ in out_dir.iterdir() if _.is_file())
     print(f"\nDone: {n_files} files in {out_dir}")
+    if any(result.get("error") for result in results.values()):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+# Instrument acquisitions must retain their original bytes on every OS.
+**/*.[rR][aA][wW]/** -text -diff
+portable_waters_convert/bin/** -text -diff
+
+# CSV writers use CRLF; do not misclassify those line endings as whitespace.
+*.csv whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

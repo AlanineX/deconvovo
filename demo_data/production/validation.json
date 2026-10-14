@@ -1,0 +1,205 @@
+{
+  "scope": "Software execution and packaging checks using complete real acquired data; not validation of chemical assignments or CCS accuracy.",
+  "execution_platform": "Linux with Wine and bundled CDCReader",
+  "windows_executed": false,
+  "raw_acquisition_count": 9,
+  "raw_bytes": 314878599,
+  "raw_hashes_preserved_after_conversion": true,
+  "source_originals_share_inodes_with_demos": false,
+  "conversion": {
+    "function": 1,
+    "ms_bin": 0,
+    "im_bin": 0,
+    "completed": 9,
+    "runs": [
+      {
+        "run_id": "20260216_UBQ_DEN_NEW_V1",
+        "profile": "protein_adp",
+        "ms_bytes": 5133314,
+        "im_bytes": 49679009,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260216_CYTC_DEN_NEW_V1",
+        "profile": "protein_adp",
+        "ms_bytes": 4002549,
+        "im_bytes": 31674899,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260216_MYO_DEN_NEW_V1",
+        "profile": "protein_adp",
+        "ms_bytes": 4210653,
+        "im_bytes": 41214354,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260212_200UM_ADP_1M_EDDA_PH6_0",
+        "profile": "protein_adp",
+        "ms_bytes": 1616920,
+        "im_bytes": 8585733,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260212_200UM_ADP_200MM_AMAC",
+        "profile": "protein_adp",
+        "ms_bytes": 4395277,
+        "im_bytes": 48253635,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260320_AGILENT_TUNE_MIX_V2",
+        "profile": "small_molecule",
+        "ms_bytes": 3078555,
+        "im_bytes": 20050926,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260320_BETAINE_V2",
+        "profile": "small_molecule",
+        "ms_bytes": 3029757,
+        "im_bytes": 11189613,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260901_HSP104_1_2_ATPYS_2",
+        "profile": "hsp104",
+        "ms_bytes": 4615593,
+        "im_bytes": 26133166,
+        "status": "complete"
+      },
+      {
+        "run_id": "20260901_HSP104_6_2P5_ATPYS_1",
+        "profile": "hsp104",
+        "ms_bytes": 4439633,
+        "im_bytes": 31046098,
+        "status": "complete"
+      }
+    ]
+  },
+  "html": {
+    "completed": 9,
+    "offline_runtime_embedded": true,
+    "external_script_sources": 0,
+    "enhanced_controls_present": true,
+    "runs": [
+      {
+        "run_id": "20260901_HSP104_1_2_ATPYS_2",
+        "profile": "hsp104",
+        "bytes": 37403606,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260901_HSP104_6_2P5_ATPYS_1",
+        "profile": "hsp104",
+        "bytes": 38682443,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260212_200UM_ADP_1M_EDDA_PH6_0",
+        "profile": "protein_adp",
+        "bytes": 19140342,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260212_200UM_ADP_200MM_AMAC",
+        "profile": "protein_adp",
+        "bytes": 33426486,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260216_CYTC_DEN_NEW_V1",
+        "profile": "protein_adp",
+        "bytes": 25716109,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260216_MYO_DEN_NEW_V1",
+        "profile": "protein_adp",
+        "bytes": 28923020,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260216_UBQ_DEN_NEW_V1",
+        "profile": "protein_adp",
+        "bytes": 33768311,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260320_AGILENT_TUNE_MIX_V2",
+        "profile": "small_molecule",
+        "bytes": 23633487,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      },
+      {
+        "run_id": "20260320_BETAINE_V2",
+        "profile": "small_molecule",
+        "bytes": 18306505,
+        "external_script_sources": [],
+        "enhanced_controls_present": true,
+        "plotly_embedded": true
+      }
+    ]
+  },
+  "calibration": {
+    "protein_adp": {
+      "valid_calibrant_peaks": 25,
+      "log_fit_r2": 0.8741173305186258,
+      "calibrant_peak_drift_time_range_ms": [
+        4.785,
+        8.745
+      ],
+      "analyte_rows": 34,
+      "analyte_peaks_exported": 34,
+      "analyte_peaks_below_calibrant_drift_range": 30,
+      "scientific_acceptance": "review_required_not_validated"
+    },
+    "small_molecule": {
+      "valid_calibrant_peaks": 6,
+      "log_fit_r2": 0.9999153566603055,
+      "calibrant_peak_drift_time_range_ms": [
+        4.235,
+        14.355
+      ],
+      "analyte_rows": 1,
+      "analyte_peaks_exported": 1,
+      "analyte_peaks_below_calibrant_drift_range": 1,
+      "scientific_acceptance": "review_required_not_validated"
+    }
+  },
+  "source_tables": "Calibrant references, target labels and peak-selection choices inherited unchanged from existing project tables.",
+  "relative_csv_paths": {
+    "small_molecule_pipeline_completed": true,
+    "resolved_beside_source_csv": true
+  },
+  "browser_check": {
+    "browser": "Chrome",
+    "network_mode": "offline",
+    "run_id": "20260320_BETAINE_V2",
+    "plotly_version": "3.4.0",
+    "traces": 3,
+    "mass_bins": 3200,
+    "drift_bins": 142,
+    "drift_axis_units": "milliseconds",
+    "profile_to_sticks_switch": "passed",
+    "heatmap_zoom_updates_linked_marginals": "passed",
+    "page_errors": 0,
+    "screenshot": "preview/betaine_offline_viewer.png"
+  }
+}

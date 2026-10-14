@@ -37,6 +37,8 @@ jobs:
       - name: Test conversion, viewer settings, workflow, and console
         run: python -m pytest tests/test_waters_conversion.py tests/test_waters_viewer.py tests/test_waters_workflow.py tests/test_waters_workspace.py tests/test_waters_embedded_viewer.py -q
       - name: Verify source RAW conversion and Windows laptop layout before freezing
+        env:
+          QT_QPA_PLATFORM: windows
         shell: pwsh
         run: |
           python portable_waters_convert/build/launcher.py --smoke-test "$env:GITHUB_WORKSPACE\waters-build\source-validation"
@@ -44,9 +46,21 @@ jobs:
           $sourceReport = Get-Content waters-build\source-validation\native_smoke.json -Raw | ConvertFrom-Json
           $sourceReport | Select-Object status, console_chart_at_1280x800, error, final_screenshot | ConvertTo-Json -Depth 5
           if ($sourceSmokeExit -ne 0) { throw "Source application smoke test failed: $sourceSmokeExit" }
+      - name: Upload source console screenshot and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatersConsole-win64-source-validation
+          path: |
+            waters-build/source-validation/*.png
+            waters-build/source-validation/native_smoke.json
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Build WatersConsole with complete real demo acquisitions
         run: python portable_waters_convert/build/build_native.py --output-dir waters-build
       - name: Verify packaged real RAW conversion, offline export, and embedded GUI
+        env:
+          QT_QPA_PLATFORM: windows
         shell: pwsh
         run: |
           $process = Start-Process -FilePath .\waters-build\dist\WatersConsole\WatersConsole.exe -ArgumentList '--smoke-test', "$PWD\waters-build\validation" -PassThru -Wait

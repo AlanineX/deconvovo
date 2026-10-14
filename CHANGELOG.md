@@ -8,7 +8,7 @@
 - Preserved saved viewer defaults, exposed the enhanced controls and **Advanced → Save defaults**, and refreshed HTML when processing so older output cannot mask changed settings.
 - Kept terminal progress compatible with standard Windows text encoding, including per-run pusher timing.
 - Added nine complete real RAW acquisitions across protein/ADP, tune-mix/Betaine and native HSP104 workflows, with original bytes and portable configuration.
-- Added a pinned Waters-only Windows build, byte verification for all demo files, and source/frozen smoke checks for real conversion, offline rendering and laptop layout.
+- Added a pinned Waters-only Windows build, byte verification for all 148 demo files, and source/frozen checks covering two RAW acquisitions, six CCS references, one analyte and ten result PNGs, plus offline rendering, native fonts and laptop layout.
 - Conversion errors fail the workflow instead of reporting successful empty results. Existing conversion, CCS and optional UniDec command-line interfaces remain available.
 
 The demonstrations retain their scientific limitations: poor protein calibration fit, ADP/Betaine extrapolation, inherited candidate assignments, and no compatible HSP104 CCS curve. See [demo notes](demo_data/production/README.md).

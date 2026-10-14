@@ -57,7 +57,7 @@ The standalone [portable Waters folder](portable_waters_convert/README.md) can b
 
 ## Build and validation
 
-The [Windows build workflow](.github/workflows/build-windows.yml) uses [pinned dependencies](portable_waters_convert/build/requirements.txt), runs the focused Waters tests, verifies the original demo bytes, and checks real RAW conversion, offline HTML, and the embedded viewer before and after freezing. Its native smoke test also checks that the viewer fits a 1280 × 800 laptop display. Build and validation reports are retained as workflow artifacts.
+The [Windows build workflow](.github/workflows/build-windows.yml) uses [pinned dependencies](portable_waters_convert/build/requirements.txt), runs the focused Waters tests, and verifies all 148 original demo files. Before and after freezing, it converts the two tune-mix/Betaine acquisitions, fits six CCS references, applies the curve to one analyte, and checks all ten calibration/analyte PNGs. It also checks offline HTML, the embedded viewer, usable native fonts, and the plot at a 1280 × 800 laptop size. Build and validation reports are retained as workflow artifacts. The all-nine conversion record in the demo guide documents Linux/Wine execution; this Windows gate covers the two-run small-molecule workflow.
 
 ```bash
 python -m pip install -r portable_waters_convert/build/requirements.txt

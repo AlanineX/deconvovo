@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import csv
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -117,27 +119,15 @@ def run(output: Path, root: Path) -> int:
         # platform selection and Chromium sandbox behavior.
         os.environ["DECONVOVO_ENABLE_HEADLESS_WEBENGINE"] = "1"
         os.environ.pop("DECONVOVO_DISABLE_WEBENGINE", None)
+        if os.name == "nt":
+            # Windows' offscreen plugin has no system font database. Validate
+            # the same native platform and fonts used by the desktop app.
+            os.environ["QT_QPA_PLATFORM"] = "windows"
         from gui.widgets.worker import set_gui_mode
         set_gui_mode()
-        from deconvovo.waters_workflow import run as process
-
-        production = root / "examples" / "production"
-        raw = production / "small_molecule" / "raw" / "20260320_BETAINE_V2.raw"
-        config_path = production / "small_molecule" / "viewer_config.json"
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-        results = process(raw, output / "real_demo", config_path=config_path)
-        html = Path(results["viewers"][0])
-        contents = html.read_text(encoding="utf-8")
-        if re.search(r'<(?:script|link|img)\b[^>]*(?:src|href)\s*=\s*[\"\']https?://', contents, re.I):
-            raise RuntimeError("Exported HTML contains an external resource")
-        if "plotly.js" not in contents or "Plotly.newPlot" not in contents:
-            raise RuntimeError("Exported HTML is missing its embedded Plotly runtime")
-        report["raw_reader"] = results["runs"][0]
-        report["portable_html_bytes"] = html.stat().st_size
-
         from PySide6.QtWidgets import QApplication
         from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QFont
+        from PySide6.QtGui import QFont, QFontDatabase, QFontInfo
         from gui.app import MainWindow
         from gui.theme import FONT_FAMILY, stylesheet
         application = QApplication([])
@@ -146,6 +136,50 @@ def run(output: Path, root: Path) -> int:
         application.setStyle("Fusion")
         application.setStyleSheet(stylesheet(dark=True))
         application.setFont(QFont(FONT_FAMILY, 10))
+        from deconvovo.waters_workflow import run as process
+
+        production = root / "examples" / "production"
+        small_molecule = production / "small_molecule"
+        raw = small_molecule / "raw" / "20260320_BETAINE_V2.raw"
+        config_path = small_molecule / "viewer_config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        results = process(small_molecule / "raw", output / "real_demo", config_path=config_path,
+                          calibrant_csv=small_molecule / "calibrants.csv",
+                          analyte_csv=small_molecule / "analytes.csv")
+        html = output / "real_demo" / f"{raw.stem}_2d_imms.html"
+        if len(results["runs"]) != 2 or str(html) not in results["viewers"]:
+            raise RuntimeError("Small-molecule smoke requires tune mix and Betaine acquisition outputs")
+        ccs_dir = Path(results["ccs_dir"])
+        with (ccs_dir / "calibrant_summary.csv").open(encoding="utf-8", newline="") as handle:
+            references = list(csv.DictReader(handle))
+        with (ccs_dir / "analyte_summary.csv").open(encoding="utf-8", newline="") as handle:
+            analytes = list(csv.DictReader(handle))
+        if len(references) != 6 or results["calibration"]["n_points"] != 6 or len(analytes) != 1:
+            raise RuntimeError("CCS smoke requires six valid references and one Betaine analyte")
+        peak_ccs = float(analytes[0]["peak_ccs"])
+        if not math.isfinite(peak_ccs) or peak_ccs <= 0:
+            raise RuntimeError("Betaine CCS must be finite and positive")
+        reference_times = [float(row["drift_time_ms"]) for row in references]
+        peak_time = float(analytes[0]["peak_drift_time_ms"])
+        pngs = [ccs_dir / "calibration_plots.png", *sorted((ccs_dir / "cali_png").glob("*.png"))]
+        pngs += [ccs_dir / folder / f"{raw.stem}_Betaine_ccs.png" for folder in
+                 ("png_raw", "png_smoothed", "png_overlay")]
+        if len(pngs) != 10 or any(not p.is_file() or not p.read_bytes().startswith(b"\x89PNG\r\n\x1a\n") for p in pngs):
+            raise RuntimeError("CCS smoke did not publish all ten calibration/analyte PNGs")
+        report["ccs_smoke"] = {"method": "direct", "raw_runs": 2, "calibrants": 6, "analytes": 1,
+                               "peak_ccs_angstrom_squared": peak_ccs, "peak_drift_time_ms": peak_time,
+                               "calibrant_drift_range_ms": [min(reference_times), max(reference_times)],
+                               "extrapolated": peak_time < min(reference_times) or peak_time > max(reference_times),
+                               "scientific_acceptance": "software_demo_requires_review_not_independently_validated",
+                               "log_fit_r2": results["calibration"]["r2_lnln"],
+                               "pngs": [p.relative_to(ccs_dir).as_posix() for p in pngs]}
+        contents = html.read_text(encoding="utf-8")
+        if re.search(r'<(?:script|link|img)\b[^>]*(?:src|href)\s*=\s*[\"\']https?://', contents, re.I):
+            raise RuntimeError("Exported HTML contains an external resource")
+        if "plotly.js" not in contents or "Plotly.newPlot" not in contents:
+            raise RuntimeError("Exported HTML is missing its embedded Plotly runtime")
+        report["raw_reader"] = next(run for run in results["runs"] if run["run_name"] == raw.stem)
+        report["portable_html_bytes"] = html.stat().st_size
 
         def wait_until(predicate, seconds=90):
             deadline = time.monotonic() + seconds
@@ -165,6 +199,14 @@ def run(output: Path, root: Path) -> int:
         window = MainWindow()
         window.resize(1280, 800)
         window.show()
+        application.processEvents()
+        actual_font = QFontInfo(application.font())
+        report["native_gui_fonts"] = {"family_count": len(QFontDatabase.families()),
+                                      "actual_family": actual_font.family(),
+                                      "pixel_size": actual_font.pixelSize()}
+        if (not report["native_gui_fonts"]["family_count"] or not actual_font.family().strip()
+                or actual_font.pixelSize() <= 0):
+            raise RuntimeError("Qt could not load usable desktop fonts; native GUI labels cannot render.")
         panel = window.get_panel(0)
         panel.viewer_panel.set_config(config)
         panel.pick_source.set_path(str(raw))

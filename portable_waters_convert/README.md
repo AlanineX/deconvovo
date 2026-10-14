@@ -46,4 +46,4 @@ python -m pip install -r build/requirements.txt
 python build/build_native.py --output-dir build/artifacts
 ```
 
-Build on Windows x64 for a Windows application. The builder packages the reader, offline Plotly, Qt WebEngine and nine full demos, verifies their original bytes, and records provenance. [Third-party licenses](bin/) are included; UniDec requests citation of [Marty et al., Analytical Chemistry (2015)](https://doi.org/10.1021/acs.analchem.5b00140) for publications using its software.
+Build on Windows x64 for a Windows application. The builder packages the reader, offline Plotly, Qt WebEngine and nine full demos, verifies all 148 original files, and records provenance. The Windows workflow then checks tune-mix/Betaine conversion, six-reference calibration and one-analyte application with ten result PNGs, offline viewing, native fonts and laptop layout before and after freezing. The recorded conversion of all nine runs remains Linux/Wine evidence. [Third-party licenses](bin/) are included; UniDec requests citation of [Marty et al., Analytical Chemistry (2015)](https://doi.org/10.1021/acs.analchem.5b00140) for publications using its software.

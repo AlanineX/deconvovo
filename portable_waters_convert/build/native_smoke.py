@@ -200,6 +200,12 @@ def run(output: Path, root: Path) -> int:
         window.resize(1280, 800)
         window.show()
         application.processEvents()
+        # Initial Windows placement can shrink a window to the CI desktop.
+        # Validate the claimed client size after that placement has finished.
+        window.resize(1280, 800)
+        application.processEvents()
+        if window.width() != 1280 or window.height() != 800:
+            raise RuntimeError(f"Requested 1280x800 client, obtained {window.width()}x{window.height()}")
         actual_font = QFontInfo(application.font())
         report["native_gui_fonts"] = {"family_count": len(QFontDatabase.families()),
                                       "actual_family": actual_font.family(),

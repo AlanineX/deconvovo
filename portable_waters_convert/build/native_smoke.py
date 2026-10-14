@@ -9,6 +9,9 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import sys
 import time
 import traceback
 
@@ -81,7 +84,7 @@ def _qt_diagnostics(application, window, panel, viewer) -> dict:
             panel.plot_panel.findChildren(QWidget, options=Qt.FindDirectChildrenOnly)]
     if viewer is not None:
         targets.update(viewer=viewer, viewer_tabs=viewer.tabs, im_stack=viewer.im_stack,
-                       web_view=viewer.web_view, viewer_status=viewer.status)
+                       native_canvas=viewer.canvas, viewer_status=viewer.status)
     direct_children = targets.pop("plot_direct_children", [])
     screen = window.screen()
     font_directory = Path(os.environ.get("QT_QPA_FONTDIR") or
@@ -117,18 +120,14 @@ def run(output: Path, root: Path) -> int:
     try:
         # Explicit build-test opt-in; normal desktop startup keeps Qt's default
         # platform selection and Chromium sandbox behavior.
-        os.environ["DECONVOVO_ENABLE_HEADLESS_WEBENGINE"] = "1"
-        os.environ.pop("DECONVOVO_DISABLE_WEBENGINE", None)
         if os.name == "nt":
             # Windows' offscreen plugin has no system font database. Validate
             # the same native platform and fonts used by the desktop app.
             os.environ["QT_QPA_PLATFORM"] = "windows"
         from gui.widgets.worker import set_gui_mode
         set_gui_mode()
-        from PySide6.QtWidgets import QApplication, QFileDialog
-        from PySide6.QtCore import QUrl
+        from PySide6.QtWidgets import QApplication
         from PySide6.QtGui import QFont, QFontDatabase, QFontInfo, QImage
-        from PySide6.QtWebEngineCore import QWebEngineDownloadRequest
         from gui.app import MainWindow
         from gui.theme import FONT_FAMILY, stylesheet
         application = QApplication([])
@@ -147,10 +146,9 @@ def run(output: Path, root: Path) -> int:
         config = json.loads(config_path.read_text(encoding="utf-8"))
         calibrant_path = production / profile["calibrant_csv"]
         analyte_path = production / profile["analyte_csv"]
-        results = process(production / profile["source"], output / "real_demo", config_path=config_path,
+        results = process(production / profile["source"], output / "real_demo", html=False, config_path=config_path,
                           calibrant_csv=calibrant_path, analyte_csv=analyte_path)
-        adp_html = output / "real_demo" / f"{adp_raw.stem}_2d_imms.html"
-        if len(results["runs"]) != 5 or str(adp_html) not in results["viewers"]:
+        if len(results["runs"]) != 5 or results["viewers"]:
             raise RuntimeError("Primary smoke requires three protein standards and two ADP acquisition outputs")
         ccs_dir = Path(results["ccs_dir"])
         with calibrant_path.open(encoding="utf-8", newline="") as handle:
@@ -199,23 +197,10 @@ def run(output: Path, root: Path) -> int:
                 or existing_html != {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                                      for p in (output / "betaine_demo").glob("*.html")}):
             raise RuntimeError("Betaine convert-only must publish one MS/IM pair without HTML or CCS")
-        results = process(Path(converted["converted_dir"]), output / "betaine_demo",
-                          convert=False, config_path=config_path)
-        html = output / "betaine_demo" / f"{raw.stem}_2d_imms.html"
-        if (len(results["viewers"]) != 1 or str(html) not in results["viewers"] or results["ccs_dir"]
-                or len(results["runs"]) != 1 or results["runs"][0]["status"] != "converted input"):
-            raise RuntimeError("Betaine viewer-only must render its converted pair without CCS")
         report["convert_only"] = {"run": raw.stem, "ms_im_pairs": 1, "viewers": 0, "ccs": False}
-        report["viewer_only"] = {"run": raw.stem, "viewers": 1, "reconverted": False, "ccs": False}
         report["preview_profile"] = profile["id"]
         report["preview_run"] = raw.stem
-        contents = html.read_text(encoding="utf-8")
-        if re.search(r'<(?:script|link|img)\b[^>]*(?:src|href)\s*=\s*[\"\']https?://', contents, re.I):
-            raise RuntimeError("Exported HTML contains an external resource")
-        if "plotly.js" not in contents or "Plotly.newPlot" not in contents:
-            raise RuntimeError("Exported HTML is missing its embedded Plotly runtime")
         report["raw_reader"] = converted["runs"][0]
-        report["portable_html_bytes"] = html.stat().st_size
 
         def wait_until(predicate, seconds=90):
             deadline = time.monotonic() + seconds
@@ -224,38 +209,25 @@ def run(output: Path, root: Path) -> int:
                 if predicate():
                     return
                 time.sleep(0.02)
-            raise RuntimeError("Frozen GUI did not reach the expected state")
-
-        def javascript(source):
-            reply = []
-            viewer.web_view.page().runJavaScript(source, lambda value: reply.append(value))
-            wait_until(lambda: bool(reply), 15)
-            return reply[0]
+            raise RuntimeError("Native GUI did not reach the expected state")
 
         window = MainWindow()
         window.resize(1280, 800)
         window.show()
         application.processEvents()
-        # Initial Windows placement can shrink a window to the CI desktop.
-        # Validate the claimed client size after that placement has finished.
         window.resize(1280, 800)
         application.processEvents()
         if window.width() != 1280 or window.height() != 800:
             raise RuntimeError(f"Requested 1280x800 client, obtained {window.width()}x{window.height()}")
         actual_font = QFontInfo(application.font())
         report["native_gui_fonts"] = {"family_count": len(QFontDatabase.families()),
-                                      "actual_family": actual_font.family(),
-                                      "pixel_size": actual_font.pixelSize()}
-        if (not report["native_gui_fonts"]["family_count"] or not actual_font.family().strip()
-                or actual_font.pixelSize() <= 0):
-            raise RuntimeError("Qt could not load usable desktop fonts; native GUI labels cannot render.")
+                                      "actual_family": actual_font.family(), "pixel_size": actual_font.pixelSize()}
+        if not report["native_gui_fonts"]["family_count"] or not actual_font.family().strip() or actual_font.pixelSize() <= 0:
+            raise RuntimeError("Qt could not load usable desktop fonts")
         panel = window.get_panel(0)
         panel.combo_demo.setCurrentIndex(next(index for index in range(panel.combo_demo.count())
             if (panel.combo_demo.itemData(index) or {}).get("id") == profile["id"]))
         panel._load_demo()
-        panel.viewer_panel.set_config(config)
-        # Exercise quoted CSV paths on the ADP tables before returning the
-        # viewer-only demo to its own empty calibration/analyte tables.
         for picker, expected_path in ((panel.calibration_panel.pick_csv, calibrant_path),
                                       (panel.analyte_panel.pick_ana, analyte_path)):
             picker.set_path(f'"{expected_path}"')
@@ -266,275 +238,227 @@ def run(output: Path, root: Path) -> int:
         if report["quoted_csv_tables"] != {"calibrants": 25, "analytes": 34}:
             raise RuntimeError("Quoted CSV paths did not load all 25 calibrants and 34 analytes")
         panel._load_demo()
-        pasted_paths = [(panel.pick_source, raw),
-                        (panel.pick_out, html.parent)]
-        for picker, expected_path in pasted_paths:
+        for picker, expected_path in ((panel.pick_source, raw), (panel.pick_out, output / "betaine_demo")):
             picker.set_path(f'"{expected_path}"')
             if Path(picker.path()).resolve() != expected_path.resolve():
-                raise RuntimeError("The GUI did not preserve an Explorer-quoted absolute path")
+                raise RuntimeError("The GUI did not preserve an Explorer-quoted source/output path")
         report["quoted_gui_paths"] = {"source_output_and_csv": "passed",
                                       "bundled_raw_path_contains_space": " " in str(raw),
                                       "output_path_contains_space": " " in str(output)}
         panel.reload_runs()
-        panel.run_table.selectRow(next(index for index, row in enumerate(panel._rows)
-                                      if row["run_name"] == raw.stem))
+        panel.run_table.selectRow(next(index for index, row in enumerate(panel._rows) if row["run_name"] == raw.stem))
         viewer = panel.viewer_widget
-        if viewer.web_view is None:
-            raise RuntimeError("Frozen console did not create its embedded browser")
-        record = {"run_name": raw.stem, "viewer": html,
-                  "ms": Path(results["converted_dir"]) / f"{raw.stem}_ms.txt",
-                  "im": Path(results["converted_dir"]) / f"{raw.stem}_im.txt"}
-        # Derive cell coordinates independently from the acquired tables and
-        # RAW metadata, rather than trusting two axes with the same bad range.
+        record = {"run_name": raw.stem,
+                  "ms": Path(converted["converted_dir"]) / f"{raw.stem}_ms.txt",
+                  "im": Path(converted["converted_dir"]) / f"{raw.stem}_im.txt"}
+        render_events, export_events = [], []
+        viewer.render_finished.connect(render_events.append)
+        viewer.export_finished.connect(export_events.append)
+        viewer.set_run(record, config, raw)
+        wait_until(lambda: viewer.is_ready and viewer.snapshot is not None)
         import numpy as np
         from deconvovo.io import find_pusher_period
         acquired = np.loadtxt(record["im"])
         positive = acquired[acquired[:, 2] > 0]
         native_drift_count = int(positive[:, 1].max()) + 1
         raw_mz_domain = [float(positive[:, 0].min()), float(positive[:, 0].max())]
-        baked_mz_domain = [max(raw_mz_domain[0], config["initial_view"]["mz_range"][0]),
-                           min(raw_mz_domain[1], config["initial_view"]["mz_range"][1])]
         pusher_us = find_pusher_period(raw)
         if not pusher_us or pusher_us <= 0:
-            raise RuntimeError("Betaine alignment requires its actual RAW pusher period")
+            raise RuntimeError("Native alignment requires the actual RAW pusher period")
 
-        def measure_alignment(settings, label):
-            # A control can acknowledge its new value before Plotly finishes
-            # repainting the traces; measure the committed render.
-            javascript("window.watersSmokeSettled=false;Promise.resolve(window.watersPendingRender)"
-                       ".then(function(){window.watersSmokeSettled=true;});true")
-            wait_until(lambda: javascript("window.watersSmokeSettled===true"), 15)
-            render_error = javascript("window.watersConsoleConfigError||''")
-            if render_error:
-                raise RuntimeError(f"Viewer configuration failed: {render_error}")
-            view = settings["initial_view"]
-            domain = baked_mz_domain
+        def measure_alignment(settings, label, viewport=None):
+            viewer.canvas.draw()
+            snapshot = viewer.snapshot
+            configured = settings["initial_view"]
+            requested = configured.get("mz_range") or raw_mz_domain
+            domain = [max(raw_mz_domain[0], requested[0]), min(raw_mz_domain[1], requested[1])]
+            ranges = viewport or configured
             bins = settings["defaults"]["mz_bins"]
             if bins == "native":
                 bins = min(25600, max(200, len(np.unique(positive[
                     (positive[:, 0] >= domain[0]) & (positive[:, 0] <= domain[1]), 0]))))
             drift_bins = settings["defaults"].get("drift_bins", "native")
-            expected = {"mz_range": view["mz_range"], "drift_range": view["drift_range"],
-                        "mz_domain": domain, "mz_bins": int(bins),
-                        "drift_bins": native_drift_count if drift_bins == "native" else int(drift_bins),
-                        "drift_upper_ms": native_drift_count * pusher_us / 1000,
-                        "raw_pusher_us": pusher_us}
-            source = "var expected=" + json.dumps(expected) + ";" + """
-              var p=document.getElementById('plot'),lo=p._fullLayout;
-              function compare(heat,profile,range,vertical){
-                var h=lo[heat],a=lo[profile],samples=[];
-                for(var i=0;i<=4;i++){
-                  var t=i/4,v=range[0]+t*(range[1]-range[0]);
-                  var oracle=h._offset+h._length*(vertical?1-t:t);
-                  var hp=h._offset+h.l2p(v),ap=a._offset+a.l2p(v);
-                  samples.push({coordinate:v,expected_pixel:oracle,heatmap_pixel:hp,
-                    profile_pixel:ap,error_px:Math.max(Math.abs(hp-oracle),Math.abs(ap-oracle))});
-                }
-                return {heatmap_axis:heat,profile_axis:profile,heatmap_type:h.type,profile_type:a.type,
-                  heatmap_range:h.range,profile_range:a.range,samples:samples,
-                  max_error_px:Math.max.apply(null,samples.map(function(s){return s.error_px}))};
-              }
-              function centres(values,count,lower,upper){
-                if(values.length!==count)return {count:values.length,expected_count:count,max_error:null};
-                var error=0;
-                for(var i=0;i<count;i++)error=Math.max(error,Math.abs(values[i]-(lower+(i+0.5)*(upper-lower)/count)));
-                return {count:values.length,expected_count:count,max_error:error};
-              }
-              return {expected_from_raw_and_preset:expected,
-                mz:compare('xaxis2','xaxis4',expected.mz_range,false),
-                drift:compare('yaxis2','yaxis',expected.drift_range,true),
-                heatmap_mz_centres:centres(p.data[2].x,expected.mz_bins,expected.mz_domain[0],expected.mz_domain[1]),
-                heatmap_drift_centres:centres(p.data[2].y,expected.drift_bins,0,expected.drift_upper_ms),
-                profile_drift_centres:centres(p.data[0].y,expected.drift_bins,0,expected.drift_upper_ms)};
-            """
-            value = javascript("JSON.stringify((function(){" + source + "})())")
-            measured = json.loads(value) if value else {}
+            drift_bins = native_drift_count if drift_bins == "native" else int(drift_bins)
+            upper_drift = native_drift_count * pusher_us / 1000
+            expected_mz = domain[0] + (np.arange(int(bins)) + 0.5) * (domain[1] - domain[0]) / int(bins)
+            expected_drift = (np.arange(drift_bins) + 0.5) * upper_drift / drift_bins
+            def centres(actual, expected):
+                error = float(np.max(np.abs(np.asarray(actual) - expected))) if len(actual) == len(expected) else math.inf
+                return {"count": len(actual), "expected_count": len(expected), "max_error": error}
+            measured = {"expected_from_raw_and_preset": {"mz_domain": domain, "mz_range": ranges["mz_range"],
+                         "drift_range": ranges["drift_range"], "raw_pusher_us": pusher_us},
+                        "heatmap_mz_centres": centres(snapshot.mz_centres, expected_mz),
+                        "heatmap_drift_centres": centres(snapshot.drift_centres, expected_drift),
+                        "profile_drift_centres": centres(viewer.ax_drift.lines[0].get_ydata(), expected_drift)}
+            extent = list(map(float, viewer.ax_heatmap.images[0].get_extent()))
+            measured["image_extent"] = extent
+            if not np.allclose(extent, [*domain, 0, upper_drift], rtol=0, atol=1e-7):
+                raise RuntimeError("Native heatmap pixels do not use the independent RAW-derived cell edges")
+            for name, profile_axis, bounds, direction in (
+                    ("mz", viewer.ax_ms, ranges["mz_range"], 0),
+                    ("drift", viewer.ax_drift, ranges["drift_range"], 1)):
+                heat = viewer.ax_heatmap
+                samples = []
+                for fraction in (0, .25, .5, .75, 1):
+                    value = bounds[0] + fraction * (bounds[1] - bounds[0])
+                    point = [value, 0] if direction == 0 else [0, value]
+                    expected = (heat.bbox.x0 + fraction * heat.bbox.width if direction == 0
+                                else heat.bbox.y0 + fraction * heat.bbox.height)
+                    hp = float(heat.transData.transform(point)[direction])
+                    pp = float(profile_axis.transData.transform(point)[direction])
+                    samples.append({"coordinate": value, "expected_pixel": expected, "heatmap_pixel": hp,
+                                    "profile_pixel": pp, "error_px": max(abs(hp - expected), abs(pp - expected))})
+                measured[name] = {"samples": samples, "max_error_px": max(row["error_px"] for row in samples)}
+                if measured[name]["max_error_px"] > 1:
+                    raise RuntimeError(f"Native {name} profile differs from its physical pixel projection")
+            for key in ("heatmap_mz_centres", "heatmap_drift_centres", "profile_drift_centres"):
+                if measured[key]["max_error"] > 1e-7:
+                    raise RuntimeError(f"{label} {key} differs from RAW-derived histogram centres")
             report.setdefault("profile_alignment", {})[label] = measured
-            for name in ("mz", "drift"):
-                axis = measured.get(name, {})
-                if (axis.get("heatmap_type") != "linear" or axis.get("profile_type") != "linear"
-                        or not math.isfinite(axis.get("max_error_px", math.inf))
-                        or axis["max_error_px"] > 1):
-                    raise RuntimeError(f"{label} {name} profile differs from the independent physical pixel projection")
-            for name in ("heatmap_mz_centres", "heatmap_drift_centres", "profile_drift_centres"):
-                cells = measured.get(name, {})
-                if (cells.get("count") != cells.get("expected_count")
-                        or cells.get("max_error") is None or cells["max_error"] > 1e-7):
-                    raise RuntimeError(f"{label} {name} differ from RAW-derived histogram cell centres")
-
-        viewer.set_run(record, config, raw)
-        wait_until(lambda: viewer._html_ready)
-        state_script = """JSON.stringify((function(){var p=document.getElementById('plot');return {
-          version:typeof Plotly==='undefined'?null:Plotly.version,
-          traces:p&&p.data?p.data.length:0,
-          ready:!!(p&&p._fullLayout),
-          controls:['nbins','dbins','msmode','noise2d','denoise','sm2d','cmap','zscale']
-            .every(function(id){return !!document.getElementById(id)}),
-          mz_bins:document.getElementById('nbins').value,
-          noise:document.getElementById('noise2d').value,
-          mode:document.getElementById('msmode').value
-        };})())"""
-        state = {}
-
-        def ready():
-            nonlocal state
-            value = javascript(state_script)
-            state = json.loads(value) if value else {}
-            return state.get("ready") and state.get("traces", 0) >= 3 and state.get("controls")
-
-        wait_until(ready)
-        geometry_script = """JSON.stringify((function(){
-          var p=document.getElementById('plot'),r=p.getBoundingClientRect();return {
-            styled:!!document.getElementById('waters-console-style')&&p.dataset.consoleStyled==='1',
-            width:r.width,height:r.height,
-            fully_visible:r.top>=-2&&r.left>=-2&&r.bottom<=innerHeight+2&&r.right<=innerWidth+2
-          };})())"""
-        geometry = {}
 
         def useful_chart():
-            nonlocal geometry
-            value = javascript(geometry_script)
-            geometry = json.loads(value) if value else {}
-            report["console_chart_at_1280x800"] = geometry
-            report["embedded_viewer_before_geometry_check"] = state
-            return (geometry.get("styled") and geometry.get("fully_visible")
-                    and geometry.get("height", 0) >= 250 and geometry.get("width", 0) >= 300)
-
+            width, height = viewer.canvas.width(), viewer.canvas.height()
+            viewer.canvas.draw()
+            axes_visible = all(ax.bbox.x0 >= 0 and ax.bbox.y0 >= 0 and ax.bbox.x1 <= width + 1 and ax.bbox.y1 <= height + 1
+                               for ax in (viewer.ax_heatmap, viewer.ax_drift, viewer.ax_ms))
+            report["console_chart_at_1280x800"] = {"renderer": "Matplotlib QtAgg", "width": width,
+                                                  "height": height, "fully_visible": axes_visible}
+            return width >= 300 and height >= 250 and axes_visible
         wait_until(useful_chart, 15)
-        report["console_chart_at_1280x800"] = geometry
         measure_alignment(config, "initial_detail")
-        # JavaScript acknowledges layout before Chromium submits its next
-        # frame. Let the compositor repaint before grabbing a validation image.
-        repaint_until = time.monotonic() + 0.75
+        repaint_until = time.monotonic() + .75
         while time.monotonic() < repaint_until:
-            application.processEvents()
-            time.sleep(0.02)
+            application.processEvents(); time.sleep(.02)
         window.grab().save(str(output / "native_console.png"))
         changed = deepcopy(config)
         changed["defaults"].update({"mz_bins": 250, "noise_2d": 7.25, "ms_mode": "stick"})
         changed["initial_view"] = {"mz_range": [1100, 1800], "drift_range": [5, 10]}
+        previous = len(render_events)
         viewer.apply_config(changed)
-
-        def controls_applied():
-            ready()
-            return (state.get("mz_bins") == "250" and state.get("noise") == "7.25"
-                    and state.get("mode") == "stick")
-
-        wait_until(controls_applied)
-        measure_alignment(changed, "after_live_rebin_and_zoom")
+        wait_until(lambda: len(render_events) > previous and viewer.is_ready)
+        measure_alignment(changed, "after_live_config_rebin")
+        viewport = {"mz_range": [1200, 1600], "drift_range": [6, 9]}
+        viewer.ax_heatmap.set_xlim(viewport["mz_range"])
+        viewer.ax_heatmap.set_ylim(viewport["drift_range"])
+        wait_until(lambda: viewer.is_ready and np.allclose(viewer.snapshot.mz_range, viewport["mz_range"])
+                   and np.allclose(viewer.snapshot.drift_range, viewport["drift_range"]))
+        measure_alignment(changed, "after_mouse_zoom", viewport)
+        changed["defaults"]["noise_2d"] = 8
         captures = output / "current view exports with spaces"
         captures.mkdir(exist_ok=True)
-        downloads = []
-
-        def track_download(download):
-            event = {"name": download.downloadFileName(), "state": download.state().name}
-            downloads.append(event)
-            download.stateChanged.connect(lambda state: event.update(state=state.name))
-
-        viewer._profile.downloadRequested.connect(track_download)
         source_hashes = {kind: hashlib.sha256(record[kind].read_bytes()).hexdigest() for kind in ("ms", "im")}
-        original_dialog = QFileDialog.getSaveFileName
-        try:
-            QFileDialog.getSaveFileName = staticmethod(lambda parent, title, suggested, filters:
-                                                       (str(captures / Path(suggested).name), filters))
-            exported = {}
-            for kind in ("full_png", "heatmap_png", "mz_png", "drift_png", "heatmap_csv", "mz_csv", "drift_csv"):
-                previous = len(downloads)
-                viewer.export_current(kind)
-                wait_until(lambda: len(downloads) > previous and downloads[-1]["state"] in
-                           {"DownloadCompleted", "DownloadCancelled", "DownloadInterrupted"}, 30)
-                if downloads[-1]["state"] != "DownloadCompleted":
-                    raise RuntimeError(f"Current-view {kind} download did not complete: {downloads[-1]}")
-                destination = captures / downloads[-1]["name"]
-                if not destination.is_file() or destination.stat().st_size == 0:
-                    raise RuntimeError(f"Completed current-view {kind} download has no bytes")
-                exported[kind] = destination
-            displayed = json.loads(javascript("""JSON.stringify({heatmap:P.data[2],drift:P.data[0],
-                mz:P.data[1],visible:getVisibleRange(),transform:document.getElementById('zscale').value})"""))
-            visible = displayed["visible"]
-            hm = displayed["heatmap"]
-            with exported["heatmap_csv"].open(encoding="utf-8", newline="") as handle:
+        viewer.apply_config(changed)
+        exported = {}
+        for kind in ("full_png", "heatmap_png", "mz_png", "drift_png", "heatmap_csv", "mz_csv", "drift_csv"):
+            destination = captures / (raw.stem + "_current_" + kind.replace("_", "."))
+            previous = len(export_events)
+            returned = viewer.export_current(kind, destination)
+            if Path(returned).resolve() != destination.resolve():
+                raise RuntimeError("Native export did not return the requested destination")
+            wait_until(lambda: len(export_events) > previous and any(
+                Path(event["path"]).resolve() == destination.resolve() for event in export_events[previous:]), 30)
+            event = next(event for event in export_events[previous:] if Path(event["path"]).resolve() == destination.resolve())
+            if event.get("error") or not destination.is_file() or destination.stat().st_size == 0:
+                raise RuntimeError(f"Native current-view export failed: {event}")
+            exported[kind] = destination
+        measure_alignment(changed, "after_control_preserving_zoom", viewport)
+        snapshot = viewer.snapshot
+        with exported["heatmap_csv"].open(encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames != ["mz", "drift_time_ms", "display_value", "intensity_transform"]:
+                raise RuntimeError("Native heatmap CSV must label coordinates and displayed transform")
+            rows = list(reader)
+        expected = [(float(mz), float(drift), float(value)) for drift, row in zip(
+            snapshot.drift_centres[snapshot.visible_drift_slice],
+            snapshot.display2d[snapshot.visible_drift_slice, snapshot.visible_mz_slice])
+            for mz, value in zip(snapshot.mz_centres[snapshot.visible_mz_slice], row)]
+        actual = [(float(row["mz"]), float(row["drift_time_ms"]), float(row["display_value"])) for row in rows]
+        if actual != expected or not all(row["intensity_transform"] == snapshot.transform for row in rows):
+            raise RuntimeError("Native heatmap CSV differs from the displayed coordinates and values")
+        csv_counts = {"heatmap": len(rows)}
+        for kind, column, coordinates, values, bounds in (
+                ("mz_csv", "mz", snapshot.ms_mz, snapshot.ms_intensity, snapshot.mz_range),
+                ("drift_csv", "drift_time_ms", snapshot.drift_centres, snapshot.drift_intensity, snapshot.drift_range)):
+            with exported[kind].open(encoding="utf-8", newline="") as handle:
                 reader = csv.DictReader(handle)
-                if reader.fieldnames != ["mz", "drift_time_ms", "display_value", "intensity_transform"]:
-                    raise RuntimeError("Current heatmap CSV must label its coordinates and displayed transform")
+                if reader.fieldnames != [column, "display_value"]:
+                    raise RuntimeError(f"Native {kind} has incorrect column labels")
                 rows = list(reader)
-            actual = [(float(row["mz"]), float(row["drift_time_ms"]), float(row["display_value"])) for row in rows]
-            expected = [(hm["x"][m], hm["y"][d], hm["z"][d][m])
-                        for d in range(visible["dBl"], visible["dBh"] + 1)
-                        for m in range(visible["mBl"], visible["mBh"] + 1)]
-            if actual != expected or not all(row["intensity_transform"] == displayed["transform"] for row in rows):
-                raise RuntimeError("Current heatmap CSV does not contain the displayed coordinates and values")
-            csv_counts = {"heatmap": len(rows)}
-            for kind, coordinate, trace, lower, upper in (
-                    ("mz_csv", "mz", displayed["mz"], visible["mzLo"], visible["mzHi"]),
-                    ("drift_csv", "drift_time_ms", displayed["drift"], visible["drLo"], visible["drHi"])):
-                with exported[kind].open(encoding="utf-8", newline="") as handle:
-                    reader = csv.DictReader(handle)
-                    if reader.fieldnames != [coordinate, "display_value"]:
-                        raise RuntimeError(f"Current {kind} has incorrect column labels")
-                    rows = list(reader)
-                actual = [(float(row[coordinate]), float(row["display_value"]))
-                          if row[coordinate] and row["display_value"] else (None, None) for row in rows]
-                coordinates, values = (trace["x"], trace["y"]) if kind == "mz_csv" else (trace["y"], trace["x"])
-                expected = [(value, intensity) if value is not None and intensity is not None else (None, None)
-                            for value, intensity in zip(coordinates, values)
-                            if value is None or intensity is None or lower <= value <= upper]
-                if actual != expected:
-                    raise RuntimeError(f"Current {kind} differs from its displayed trace")
-                csv_counts[kind.removesuffix("_csv")] = len(rows)
-            images = {}
-            for kind in ("full_png", "heatmap_png", "mz_png", "drift_png"):
-                image = QImage(str(exported[kind]))
-                if image.isNull() or image.width() < 1000 or image.height() < 700:
-                    raise RuntimeError(f"Current {kind} is not a valid rendered PNG")
-                images[kind] = {"width": image.width(), "height": image.height()}
-            # Exercise the actual native download guard, then independently
-            # confirm RAW containment and every original MS/IM byte.
-            QFileDialog.getSaveFileName = staticmethod(lambda parent, title, suggested, filters:
-                                                       (str(record["ms"]), filters))
-            previous = len(downloads)
-            viewer.export_current("heatmap_csv")
-            wait_until(lambda: len(downloads) > previous and downloads[-1]["state"] == "DownloadCancelled", 15)
+            actual = [(float(row[column]), float(row["display_value"])) if row[column] and row["display_value"]
+                      else (None, None) for row in rows]
+            expected = [(float(x), float(y)) if np.isfinite(x) and np.isfinite(y) else (None, None)
+                        for x, y in zip(coordinates, values) if not np.isfinite(x) or not np.isfinite(y) or bounds[0] <= x <= bounds[1]]
+            if actual != expected:
+                raise RuntimeError(f"Native {kind} differs from its displayed trace")
+            csv_counts[kind.removesuffix("_csv")] = len(rows)
+        images = {}
+        for kind in ("full_png", "heatmap_png", "mz_png", "drift_png"):
+            image = QImage(str(exported[kind]))
+            if image.isNull() or image.width() < 1000 or image.height() < 700:
+                raise RuntimeError(f"Native {kind} is not a valid rendered PNG")
+            images[kind] = {"width": image.width(), "height": image.height()}
+        for destination in (record["ms"], raw / "protected current view.csv"):
             try:
-                viewer._output_path(raw / "protected current view.csv", {".csv"})
+                viewer.export_current("heatmap_csv", destination)
             except ValueError:
                 pass
             else:
-                raise RuntimeError("Current-view export did not protect the original RAW directory")
-            if any(hashlib.sha256(record[kind].read_bytes()).hexdigest() != digest
-                   for kind, digest in source_hashes.items()):
-                raise RuntimeError("Current-view exports changed an original MS or IM table")
-            report["current_view_exports"] = {"formats": sorted(exported), "completed": 7,
-                                               "csv_rows": csv_counts, "csv_matches_display": True,
-                                               "png_dimensions": images, "source_guard": "passed",
-                                               "downloads": downloads}
-        finally:
-            QFileDialog.getSaveFileName = staticmethod(original_dialog)
-        report["embedded_viewer"] = state
-        report["embedded_viewer"]["url_scheme"] = viewer.web_view.url().scheme()
-        report["embedded_viewer"]["remote_requests_during_render"] = viewer.blocked_requests
-        if viewer.blocked_requests:
-            raise RuntimeError("The local viewer attempted to load an external resource")
+                raise RuntimeError("Native current-view export failed to reject a protected source location")
+        if any(hashlib.sha256(record[kind].read_bytes()).hexdigest() != digest for kind, digest in source_hashes.items()):
+            raise RuntimeError("Native exports changed original MS/IM data")
+        report["current_view_exports"] = {"formats": sorted(exported), "completed": 7, "csv_rows": csv_counts,
+                                           "csv_matches_display": True, "png_dimensions": images,
+                                           "source_guard": "passed", "completion": "export_finished"}
+        report["native_viewer"] = {"renderer": type(viewer.canvas).__module__, "ready": viewer.is_ready,
+                                    "needs_html_to_render": False, "drift_unit": snapshot.drift_unit,
+                                    "mouse_zoom_preserved_after_controls": True}
+        # The explicit workspace action generates HTML from TXT on its worker;
+        # native plotting above has never loaded or interpreted an HTML file.
         standalone = output / "standalone_copy"
         standalone.mkdir(exist_ok=True)
-        copied = viewer.export_html(standalone / "renamed offline viewer.html")
-        digest = hashlib.sha256(html.read_bytes()).hexdigest()
+        generated = standalone / "exported offline viewer.html"
+        returned = panel.export_portable_html(generated)
+        if returned is None:
+            raise RuntimeError("Explicit portable HTML export could not start")
+        wait_until(lambda: not panel._busy and generated.is_file(), 120)
+        contents = generated.read_text(encoding="utf-8")
+        if re.search(r'<(?:script|link|img)\b[^>]*(?:src|href)\s*=\s*[\"\']https?://', contents, re.I):
+            raise RuntimeError("Portable HTML references an external resource")
+        if "plotly.js" not in contents or "Plotly.newPlot" not in contents:
+            raise RuntimeError("Portable HTML is missing embedded Plotly")
+        if not all(f'id="{name}"' in contents for name in ("nbins", "dbins", "msmode", "noise2d", "denoise", "sm2d", "cmap", "zscale")):
+            raise RuntimeError("Portable HTML is missing offline interactive controls")
+        copied = standalone / "renamed offline viewer.html"
+        shutil.copyfile(generated, copied)
+        digest = hashlib.sha256(generated.read_bytes()).hexdigest()
         if hashlib.sha256(copied.read_bytes()).hexdigest() != digest:
-            raise RuntimeError("Standalone export differs from the generated viewer")
-        viewer.set_run({"run_name": "Moved standalone HTML", "viewer": copied}, config)
-        wait_until(lambda: viewer._html_ready)
-        wait_until(ready)
-        measure_alignment(config, "moved_standalone")
+            raise RuntimeError("Moved standalone HTML bytes changed")
+        report["portable_html_bytes"] = generated.stat().st_size
         report["standalone_copy"] = {"sha256": digest, "bytes": copied.stat().st_size,
-                                      "rendered_from_file_url": viewer.web_view.url().isLocalFile(),
-                                      "traces": state["traces"]}
-        # Direct navigation reaches the interceptor before any DNS or HTTP.
-        viewer.web_view.load(QUrl("https://offline-test.invalid/blocked"))
-        wait_until(lambda: viewer.blocked_requests > 0, 15)
-        report["remote_navigation_blocked"] = True
-        viewer.set_run({"run_name": "Moved standalone HTML", "viewer": copied}, config)
-        wait_until(lambda: viewer._html_ready)
-        wait_until(ready)
+                                      "embedded_plotly": True, "offline_controls": 8, "native_browser_runtime": False}
+        browser_modules = [name for name in sys.modules if "qtwebengine" in name.casefold()]
+        if os.name == "nt":
+            command = ["powershell.exe", "-NoProfile", "-Command",
+                       "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress"]
+            reply = subprocess.run(command, capture_output=True, text=True, check=True)
+            processes = [(int(row["ProcessId"]), int(row["ParentProcessId"]), row["Name"])
+                         for row in json.loads(reply.stdout)]
+        else:
+            reply = subprocess.run(["ps", "-eo", "pid=,ppid=,comm="], capture_output=True, text=True, check=True)
+            processes = [(int(parts[0]), int(parts[1]), parts[2]) for line in reply.stdout.splitlines()
+                         if len(parts := line.strip().split(None, 2)) == 3]
+        family = {os.getpid()}
+        while True:
+            expanded = family | {pid for pid, parent, _name in processes if parent in family}
+            if expanded == family:
+                break
+            family = expanded
+        browser_processes = [name for pid, _parent, name in processes if pid in family and
+                             any(word in name.casefold() for word in ("webengine", "chromium", "chrome", "msedge"))]
+        report["browser_free_gui"] = {"loaded_webengine_modules": browser_modules,
+                                      "browser_child_processes": browser_processes}
+        if browser_modules or browser_processes:
+            raise RuntimeError("Native plotting loaded a browser runtime or launched a browser process")
         report["status"] = "passed"
         return_code = 0
     except Exception:
@@ -544,26 +468,17 @@ def run(output: Path, root: Path) -> int:
     finally:
         if window is not None:
             try:
-                repaint_until = time.monotonic() + 0.75
+                repaint_until = time.monotonic() + .75
                 while time.monotonic() < repaint_until:
-                    application.processEvents()
-                    time.sleep(0.02)
+                    application.processEvents(); time.sleep(.02)
+                if viewer is not None:
+                    viewer.canvas.draw()
                 final_image = output / "native_console_final_state.png"
                 captured = window.grab()
-                report["final_screenshot"] = {"path": final_image.name,
-                                              "saved": captured.save(str(final_image), "PNG")}
+                report["final_screenshot"] = {"path": final_image.name, "saved": captured.save(str(final_image), "PNG")}
                 if report["status"] != "passed":
                     captured.save(str(output / "native_console.png"), "PNG")
                 report["qt_layout_diagnostics"] = _qt_diagnostics(application, window, panel, viewer)
-                if viewer is not None and viewer.web_view is not None:
-                    value = javascript("""JSON.stringify((function(){var p=document.getElementById('plot');return {
-                      inner_width:innerWidth,inner_height:innerHeight,device_pixel_ratio:devicePixelRatio,
-                      plotly_ready:!!(p&&p._fullLayout),traces:p&&p.data?p.data.length:0,
-                      plot_rect:p?{width:p.getBoundingClientRect().width,height:p.getBoundingClientRect().height}:null,
-                      layout_width:p&&p._fullLayout?p._fullLayout.width:null,
-                      layout_height:p&&p._fullLayout?p._fullLayout.height:null
-                    };})())""")
-                    report["browser_final_state"] = json.loads(value) if value else None
             except Exception:
                 report["diagnostics_error"] = traceback.format_exc()
         if viewer is not None:

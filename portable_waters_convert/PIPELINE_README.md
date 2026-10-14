@@ -27,6 +27,10 @@ Three unfolded protein acquisitions supply 25 reference rows; the curve is appli
 
 The copied HTML viewer embeds the Plotly JavaScript matching the installed Python package, so the generated HTML opens **offline**. It provides linked 2D/drift/mass-spectrum panels, smoothing/noise/intensity controls, display binning, colormaps, and PNG/CSV export.
 
+The GUI's **Process & view** draws native Matplotlib plots from the converted
+TXT with NumPy/SciPy; it does not generate or embed HTML. **Export portable HTML**
+is the explicit separate route shown by the plotting command above.
+
 ## Betaine acquisition: 1000–2000 visual detail
 
 This supplementary view uses the complete Betaine acquisition and supplies no
@@ -48,9 +52,10 @@ outside the focus. Convert this separate run, then generate its focused viewer:
 | 2D noise cutoff / fade | 5% / 1% |
 | Mass / drift profiles | Profile MS; unsmoothed drift |
 
-The full-batch overview and Betaine focus are display configurations. The heatmap
-domain is baked from `initial_view.mz_range`; regenerate with a wider range to
-inspect outside it. Display settings do not change the converted TXT inputs.
+The full-batch overview and Betaine focus are display configurations. In HTML,
+the heatmap domain is baked from `initial_view.mz_range`; regenerate with a wider
+range to inspect outside it. Native GUI ranges can widen directly from the
+full-precision TXT inputs. Display settings do not change those inputs.
 Choose `smooth_2d.method: raw` and `render: off` for an unsmoothed display.
 
 `-i` accepts a folder or an explicit list of TXT paths sharing one parent folder. Bash-expanded globs work; a quoted wildcard is not expanded by this module. `--raw-dir` is the parent of the matching `.raw` folders, allowing drift-time units to be recovered. Start with `-j 1`; increase workers only if memory permits, because each worker loads a complete IM file and builds its own heatmap.
@@ -104,12 +109,12 @@ and applies that curve to Betaine; it does not calibrate ADP from Betaine.
 
 Outputs include `calibration_curve.json`, `calibrant_summary.csv`, `calibration_plots.png`, calibrant drift plots/peak CSVs, `analyte_summary.csv`, and analyte CCS CSV/PNG folders for raw, smoothed and overlay views. Uniform CCS resampling uses a fixed `0.5` square-angstrom step; Gaussian smoothing uses `sigma=3` grid points. Both are existing constants in `deconvovo/ccs_convert.py`.
 
-The [production guide](examples/production/README.md) records the complete protein/ADP and auxiliary tune-mix/Betaine examples, their relative-path tables and scientific limits. [Retained validation](examples/production/validation.json) records their earlier Linux/Wine execution.
+The [production guide](examples/production/README.md) records the complete protein/ADP and auxiliary tune-mix/Betaine examples, their relative-path tables and scientific limits. [Retained validation](examples/production/validation.json) records earlier Linux/Wine execution.
 
 ## Current limitations
 
 - The older browser raw/processed CSV buttons are distinct from the desktop's **Export current view** menu. Current-view profile CSVs use the displayed traces and current ranges; current 2D CSV uses transformed/filtered heatmap values. Keep the generated point CSV and original TXT/RAW data for raw intensities.
 - Use `extract_mobiligram.py` for an exact target-window sum from raw IM points, independent of display bins, filtering and smoothing.
-- Initial and rebinned heatmaps, point CSVs and CCS profiles use drift-bin centres, including the half-bin timing offset. Matched profiles follow the axis ranges Plotly actually renders.
+- Initial and rebinned heatmaps, point CSVs and CCS profiles use drift-bin centres, including the half-bin timing offset. Native plots use shared Matplotlib axes; exported HTML profiles follow the ranges Plotly actually renders.
 - The calibration orchestrator rejects inconsistent EDC delay coefficients across calibrant RAW folders. Confirm compatible acquisition metadata before fitting.
-- Release builds execute the protein-to-ADP workflow from source and the frozen Windows application, including space-containing paths, offline viewing, alignment and current-view exports. Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/native_smoke.json). The retained data contains seven acquisitions and 106 original files; macOS native runtime remains untested.
+- Release builds check native protein-to-ADP processing, space-containing paths, alignment, current-view exports and separate offline HTML generation. Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/native_smoke.json). The retained data contains seven acquisitions and 106 original files; macOS native runtime remains untested.

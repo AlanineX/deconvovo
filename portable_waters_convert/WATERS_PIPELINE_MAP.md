@@ -20,7 +20,8 @@ The audit recovered the enhanced Waters modules committed in June. The local REA
 
 ```text
 Waters RAW folder → waters_convert.py → paired MS/IM TXT
-                                      ├→ imms_plot + imms_html → 2D HTML / point CSV
+                                      ├→ native NumPy/SciPy calculations + Matplotlib → desktop plots
+                                      ├→ explicit imms_plot + imms_html → portable HTML / point CSV
                                       ├→ target-window extraction → mobiligram CSV / PNG
                                       └→ calibration/analyte CSV + RAW metadata → CCS fit / profiles / plots
 ```
@@ -79,12 +80,12 @@ Carter's preset uses mass range `[350,1250]`, drift range `[0,15]`, 6400 mass bi
 | Former all-in-one conversion checks | Earlier cache checks used MS TXT alone and reader failures could be marked OK; current conversion requires the requested nonempty outputs and propagates failures | Use the current converter, batch CLI or merged desktop workflow; select explicit settings for a new acquisition |
 | Historical HTML “self-contained” wording | Original HTML explicitly loads `https://cdn.plot.ly/plotly-2.35.2.min.js`; current installed Python Plotly is 6.6.0 with JS 3.4.0 | Copied module embeds the JS matching the installed Python package, fixing the offline dependency/version mismatch |
 | Current-view and raw exports | Current-view CSV uses the displayed traces/ranges, including transforms and filters; older browser raw/processed buttons and the generated point CSV have separate meanings | Use the target-window extractor for exact raw mobiligrams; retain original TXT/RAW inputs |
-| Drift coordinates and matched ranges | Initial/rebinned heatmaps and numerical exports now use bin centres; linked profiles read the ranges Plotly actually renders | The half-bin time convention and resolved matched-axis ranges keep the plotted axes aligned |
+| Drift coordinates and matched ranges | Initial/rebinned heatmaps and numerical exports use bin centres; native plots share Matplotlib axes and HTML reads resolved Plotly ranges | Native ranges can widen from the original TXT; HTML retains its baked mass domain |
 | Historical CCS outputs | Existing tune-mix and protein fits are stored under `output/legacy/`; these are experiment-specific results | Do not apply a curve to unrelated acquisition conditions |
 
 The CCS routines date mainly to March, but they still import and execute. The CSV templates needed portable dataset paths: copied templates now expect matching RAW folders under `data/`; their species/settings are preserved. The calibration orchestrator now rejects differing EDC delay coefficients across calibrant RAW folders; compatible acquisition conditions still require review.
 
-The selected design 01 Instrument Console replaces the five-panel Waters GUI with a three-pane workbench: acquisitions, measured plots, and display/CCS controls. **Process & view** combines conversion and viewing; **CCS review** combines editable calibrant/analyte tables, curve diagnostics, and application results using shared paths. **Advanced processing & defaults → Save defaults** preserves viewer choices across relaunches without dropping configuration fields the desktop does not edit. See [GUI_README.md](GUI_README.md). The original local Thermo workspace remains a separate application workflow.
+The selected design 01 Instrument Console replaces the five-panel Waters GUI with a three-pane workbench: acquisitions, measured plots, and display/CCS controls. **Process & view** combines conversion and native Matplotlib viewing, without generating HTML. **Export portable HTML** is a separate explicit export. **CCS review** combines editable calibrant/analyte tables, curve diagnostics, and application results using shared paths. **Advanced processing & defaults → Save defaults** preserves viewer choices across relaunches without dropping configuration fields the desktop does not edit. See [GUI_README.md](GUI_README.md). The original local Thermo workspace remains a separate application workflow.
 
 ## Verification and remaining limits
 
@@ -93,4 +94,4 @@ The selected design 01 Instrument Console replaces the five-panel Waters GUI wit
 - The copied calibration route is exercised with six existing tune-mix calibrants and a Betaine analyte; [production notes/results](examples/production/README.md) include the two complete RAW acquisitions. The full example also passes a fresh install in a relocated project with a fresh Wine prefix. This checks execution, not general accuracy for unrelated acquisitions.
 - Browser checks exercise the generated HTML with networking disabled; the validation record lists the controls checked.
 - The copied plotting package is exercised from a separate folder to check that imports/config lookup do not depend on the original checkout.
-- Release builds check the protein-to-ADP workflow from source and the frozen Windows application, including space-containing paths, offline viewing, alignment and current-view exports. Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/native_smoke.json). Current retained data covers seven acquisitions and 106 original files; [production validation](examples/production/validation.json) retains earlier Linux/Wine execution. macOS native runtime remains untested.
+- Release builds verify native protein-to-ADP processing, space-containing paths, profile alignment, current-view exports and separate offline HTML. Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/native_smoke.json). The current corpus covers seven acquisitions and 106 original files; [production validation](examples/production/validation.json) retains earlier Linux/Wine execution. macOS native runtime remains untested.

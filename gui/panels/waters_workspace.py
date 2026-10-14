@@ -284,11 +284,14 @@ class WatersWorkspacePanel(QWidget):
         self.selected_state_label.setProperty("subtitle", True)
         labels.addWidget(self.selected_state_label)
         selected.addLayout(labels, 1)
-        self.btn_viewer = self._button("Open in browser", self.open_viewer)
+        self.btn_viewer = self._button("Reset view", self.open_viewer)
+        self.btn_viewer.setToolTip("Restore the selected numeric ranges in the native plot.")
         selected.addWidget(self.btn_viewer)
         self.btn_export_view = QToolButton()
         self.btn_export_view.setText("Export current view")
         self.btn_export_view.setProperty("secondary", True)
+        self.btn_export_view.setMinimumWidth(QFontMetrics(self.btn_export_view.font()).horizontalAdvance("Export current view") + 36)
+        self.btn_export_view.setStyleSheet("padding-right: 20px;")
         self.btn_export_view.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self.btn_export_view)
         for text, key in (
@@ -304,7 +307,8 @@ class WatersWorkspacePanel(QWidget):
         plot_layout.addWidget(self.selected_run_header)
         self.tabs = QTabWidget()
         self.viewer_widget = WatersViewerWidget(self)
-        self.viewer_widget.btn_browser.hide()  # the selected-run header owns this action
+        self.viewer_widget.ready_changed.connect(lambda _ready: self._update_open_buttons())
+        self.viewer_widget.export_finished.connect(self._current_export_finished)
         self.tabs.addTab(self.viewer_widget, "Local viewer · offline")
         self._build_ccs_page()
         plot_layout.addWidget(self.tabs, 1)
@@ -317,7 +321,7 @@ class WatersWorkspacePanel(QWidget):
         row = QHBoxLayout()
         self.output_summary = QLabel("No outputs yet")
         self.output_summary.setWordWrap(False)
-        self.output_summary.setToolTip("MS / IM tables and offline viewers appear after processing. CCS summaries appear after optional calibration.")
+        self.output_summary.setToolTip("MS / IM tables are viewed directly in the GUI. Export portable HTML separately; CCS is optional.")
         self.output_summary.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.output_summary.setProperty("subtitle", True)
         row.addWidget(self.output_summary, 1)
@@ -340,7 +344,7 @@ class WatersWorkspacePanel(QWidget):
         self.display_group = QGroupBox("Viewer defaults")
         display = QVBoxLayout(self.display_group)
         display.setContentsMargins(0, 0, 0, 0)
-        note = QLabel("Controls update the displayed viewer. Process & view saves them in fresh offline HTML.")
+        note = QLabel("Controls update the native plots. Export portable HTML saves a separate offline viewer.")
         note.setWordWrap(True)
         note.setProperty("subtitle", True)
         display.addWidget(note)
@@ -453,7 +457,7 @@ class WatersWorkspacePanel(QWidget):
             control.setSpecialValueText("Native resolution")
         self.chk_reuse = QCheckBox("Reuse unchanged RAW conversions")
         self.chk_reuse.setChecked(True)
-        self.chk_reuse.setToolTip("Only unchanged acquisitions and extraction settings are reused. Display settings always regenerate HTML.")
+        self.chk_reuse.setToolTip("Only unchanged acquisitions and extraction settings are reused. Display settings update the native plots.")
         form.addRow("Acquisition function:", self.spin_func)
         form.addRow("MS bin width:", self.spin_ms_bin)
         form.addRow("IM bin width:", self.spin_im_bin)
@@ -604,7 +608,7 @@ class WatersWorkspacePanel(QWidget):
             return None
         index = self.run_table.currentRow()
         if not 0 <= index < len(self._rows) or not all(self._rows[index].get(key) for key in ("ms", "im")):
-            self._problem("Process & view first to create paired MS / IM data for portable export.")
+            self._problem("Convert the acquisition first to create paired MS / IM data for portable export.")
             return None
         record = dict(self._rows[index])
         output = Path(self.pick_out.path()) if self.pick_out.path() else Path(record["ms"]).parent
@@ -655,6 +659,22 @@ class WatersWorkspacePanel(QWidget):
         except (OSError, ValueError) as error:
             self._problem(str(error))
             return None
+
+    def _current_export_finished(self, result):
+        if result.get("error"):
+            message = f"Current-view export failed: {result['error']}"
+            if not self._busy:
+                self._problem(message)
+            else:
+                self._log.log(message, "error")
+            return
+        path = Path(result["path"])
+        message = f"Exported current view: {path.name}"
+        self._log.log(f"{message} · {path}", "success")
+        if not self._busy:
+            self.job_status.setText(message)
+            self.job_status.setToolTip(str(path))
+            self.job_status.setStyleSheet(f"color: {SUCCESS};")
 
     @staticmethod
     def _do_export(record, config_path, destination, source):
@@ -793,7 +813,7 @@ class WatersWorkspacePanel(QWidget):
         self.demo_description.setToolTip(description)
         self.ccs_demo_description.setText(profile.get("description", ""))
         self._update_ccs_cards()
-        self.job_status.setText("Real acquisition demo loaded. Process & view creates fresh offline HTML in your output folder.")
+        self.job_status.setText("Real acquisition demo loaded. Process & view converts the data and opens the native plots.")
         self.tabs.setCurrentIndex(0)
         self._sync_ccs_paths()
         self.reload_runs()
@@ -870,10 +890,10 @@ class WatersWorkspacePanel(QWidget):
         raw_count = sum(bool(row.get("raw")) for row in self._rows)
         pair_count = sum(bool(row.get("ms") and row.get("im")) for row in self._rows)
         viewer_count = sum(bool(row.get("viewer")) for row in self._rows)
-        self.overview.setText(f"{len(self._rows)} runs  ·  {raw_count} RAW acquisitions  ·  {pair_count} MS/IM pairs  ·  {viewer_count} viewers" if self._rows else "No runs loaded. Choose a source folder or load a real demo above.")
+        self.overview.setText(f"{len(self._rows)} runs  ·  {raw_count} RAW acquisitions  ·  {pair_count} MS/IM pairs" if self._rows else "No runs loaded. Choose a source folder or load a real demo above.")
         self.queue_summary.setText(f"{len(self._rows)} inputs ready" if self._rows else "No inputs loaded")
-        self.output_summary.setText(f"{len(self._rows)} runs · {viewer_count} viewers" if self._rows else "No outputs yet")
-        self.output_summary.setToolTip(f"{pair_count} converted MS / IM pairs; {viewer_count} offline HTML viewers. CCS summaries appear after optional calibration.")
+        self.output_summary.setText(f"{pair_count} MS/IM pairs · {viewer_count} HTML exports" if self._rows else "No outputs yet")
+        self.output_summary.setToolTip(f"{pair_count} converted pairs for native viewing; {viewer_count} portable HTML exports. CCS is optional.")
         if self._rows:
             selected = next((i for i, record in enumerate(self._rows) if record["run_name"] == selected_name), 0)
             self.run_table.selectRow(selected)
@@ -884,15 +904,16 @@ class WatersWorkspacePanel(QWidget):
 
     def _update_open_buttons(self):
         index = self.run_table.currentRow()
-        self.btn_viewer.setEnabled(0 <= index < len(self._rows) and bool(self._rows[index].get("viewer")))
-        self.btn_export_view.setEnabled(not self._busy and 0 <= index < len(self._rows) and bool(self._rows[index].get("viewer")))
+        has_pair = 0 <= index < len(self._rows) and all(self._rows[index].get(key) for key in ("ms", "im"))
+        self.btn_viewer.setEnabled(not self._busy and has_pair)
+        self.btn_export_view.setEnabled(not self._busy and has_pair and self.viewer_widget.is_ready)
         self.btn_export.setEnabled(not self._busy and 0 <= index < len(self._rows) and all(self._rows[index].get(key) for key in ("ms", "im")))
         self.btn_folder.setEnabled(bool(self.pick_out.path()) and Path(self.pick_out.path()).is_dir())
 
     def open_viewer(self):
         index = self.run_table.currentRow()
-        if 0 <= index < len(self._rows) and self._rows[index].get("viewer"):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._rows[index]["viewer"].resolve())))
+        if 0 <= index < len(self._rows) and all(self._rows[index].get(key) for key in ("ms", "im")):
+            self.viewer_widget.reset_view()
 
     def open_output_folder(self):
         path = Path(self.pick_out.path()) if self.pick_out.path() else None
@@ -908,7 +929,12 @@ class WatersWorkspacePanel(QWidget):
             self._worker.wait()
 
     def process_and_view(self):
-        self._start(html=True, ccs=self.chk_ccs.isChecked())
+        try:
+            self.viewer_panel.current_config()
+        except ValueError as error:
+            self._problem(str(error))
+            return
+        self._start(html=False, ccs=self.chk_ccs.isChecked())
 
     def convert_only(self):
         self._start(html=False, ccs=False)
@@ -1057,8 +1083,8 @@ class WatersWorkspacePanel(QWidget):
             self.calibration_panel._draw_calibration(calibration)
             self._reload_drift_profiles()
             self._show_fit_status(calibration)
-        count = sum(bool(row.get("viewer")) for row in self._rows)
-        message = f"Complete: {len(self._rows)} runs" + (f", {count} offline viewers." if count else ".")
+        count = sum(bool(row.get("ms") and row.get("im")) for row in self._rows)
+        message = f"Complete: {len(self._rows)} runs, {count} MS/IM pairs ready for native viewing."
         if self._last_result.get("ccs_dir"):
             message += " CCS results are ready in CCS analysis."
             if calibration and calibration.get("r2_lnln", 0) <= 0.95:

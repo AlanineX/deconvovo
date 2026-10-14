@@ -2,7 +2,7 @@
 
 Seven complete acquired Waters RAW folders (235.75 MiB, 106 files) provide a protein-calibrant workflow for ADP CCS and a separate small-molecule reference check. They include instrument metadata, function data and existing reader sidecars. No acquisition was synthesized, shortened or stripped to make it smaller.
 
-Open the Waters workspace, choose a demo, choose a writable output folder, then process the selected runs. Generated data and viewers belong in the output folder. Each demo supplies its own viewer settings; the calibration and analyte tables are optional inputs where supplied.
+Open the Waters workspace, choose a demo and a writable output folder, then click **Process & view**. The GUI draws native Matplotlib plots directly from converted MS/IM TXT; this step does not generate HTML. **Export portable HTML** separately creates a single-file Plotly viewer for an external browser. Each demo supplies its own display settings; calibration and analyte tables are optional inputs where supplied.
 
 | Demo | Real runs | RAW size | What it exercises |
 | --- | ---: | ---: | --- |
@@ -50,19 +50,19 @@ python -m deconvovo.imms_plot -i output/demo-adp-converted -o output/demo-adp-ht
 python -m deconvovo.imms_ccs_calibrate -o output/demo-adp-ccs --data-dir output/demo-adp-converted --calibrant-csv examples/production/protein_adp/calibrants.csv --analyte-csv examples/production/protein_adp/analytes.csv
 ```
 
-The compiled Windows application runs the same steps through its Waters workspace; a Python installation is needed only for these source commands.
+The GUI uses **Process & view** for conversion and native viewing, with **Calibrate & apply** or the CCS checkbox for the optional analysis. The HTML command above is an explicit export; the GUI provides **Export portable HTML** for that route. A Python installation is needed for these source commands; compiled applications bundle their runtime.
 
 ## Betaine acquisition: 1000–2000 m/z detail
 
 In **Load real demo**, choose **Betaine · 1000–2000 m/z detail**, select a writable output folder, then process/view. This display preset opens the single complete Betaine acquisition. It supplies no CCS calibration; use the protein-calibrant example above for ADP CCS.
 
-The [detail config](small_molecule/betaine_1000_2000_viewer_config.json) selects 1000–2000 m/z and 4–12 ms before generating the viewer, so the heatmap and linked profiles use that region's signal range. Cube-root display intensity, 6400 mass bins and native drift bins reveal the weaker signal. Light 0.1 Da and 0.07 ms heatmap smoothing improves visibility; the drift profile is unsmoothed. The acquired values remain unchanged.
+The [detail config](small_molecule/betaine_1000_2000_viewer_config.json) starts the native plot at 1000–2000 m/z and 4–12 ms, so the heatmap and linked profiles use that region's signal range. Native X/Y fields can widen directly from the full TXT data. The same configuration can be used for the separate HTML export, whose baked mass domain requires regeneration to widen. Cube-root display intensity, 6400 mass bins and native drift bins reveal the weaker signal. Light 0.1 Da and 0.07 ms heatmap smoothing improves visibility; the drift profile is unsmoothed. The acquired values remain unchanged.
 
-![Measured high-m/z detail from the real Betaine acquisition](preview/betaine_1000_2000_offline_viewer.png)
+![Offline HTML preview of measured high-m/z detail from the Betaine acquisition](preview/betaine_1000_2000_offline_viewer.png)
 
 These high-mass features are measured in the Betaine acquisition, but their chemical identities are unassigned. This view does not identify them as the Betaine ion near 118 m/z; the existing overview remains available to inspect that region.
 
-From source, generate the same display:
+From source, generate the separate portable HTML display:
 
 ```bash
 python -m deconvovo.waters_convert examples/production/small_molecule/raw/20260320_BETAINE_V2.raw -o output/demo-betaine-converted --fn 1 --ms-bin 0 --im-bin 0

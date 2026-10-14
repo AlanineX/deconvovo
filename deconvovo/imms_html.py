@@ -666,11 +666,6 @@ var axRatio=nM/nD;
 function ensureOdd(v){{v=Math.round(v);return v<3?3:(v%2===0?v+1:v);}}
 
 // --- Rebin heatmap from raw IM data (both axes) ---
-// Reads the CURRENT visible m/z range from the heatmap's x-axis so the same
-// nbMz bins serve only what the user is looking at — the dominant fix for
-// the "blurry overview" problem identified in the blur diagnosis doc. Zooming
-// then picking nbMz spends those bins on the current window, not the full
-// data range.
 // === Rebuild the heatmap H from immutable rawIM ===
 // ORDER-INDEPENDENCE: H is rebuilt over the FIXED baked m/z domain
 // [HM_MZ_LO0, HM_MZ_HI0] — NEVER the live zoom. So H is a pure function of
@@ -744,7 +739,7 @@ function sgSmooth1D(y,w,ord){{
   var inv=[];for(var i=0;i<p;i++){{inv.push([]);for(var j=0;j<p;j++)inv[i].push(aug[i][p+j]);}}
   // C = inv * V^T => coeffs[j] = sum_i inv[0][i] * V[j][i]  (we only need c[0] = smoothed value)
   var coeffs=new Array(w);
-  for(var j=0;j<w;j++){{var s=0;for(var i=0;i<p;i++)for(var k=0;k<p;k++)s+=inv[0][k]*V[j][k];coeffs[j]=s;}}
+  for(var j=0;j<w;j++){{var s=0;for(var k=0;k<p;k++)s+=inv[0][k]*V[j][k];coeffs[j]=s;}}
   // Apply
   for(var i=0;i<n;i++){{var s=0;for(var j=0;j<w;j++){{var idx=i-half+j;
     if(idx<0)idx=0;if(idx>=n)idx=n-1;s+=coeffs[j]*y[idx];}}out[i]=Math.max(0,s);}}
@@ -860,8 +855,7 @@ function smooth2D(h, preset) {{
     var binWidthDa = (hmMzHi - hmMzLo) / nmHere;
     var baseMzSig = preset.sigma / binWidthDa;             // Da -> bins
     var mzSig = baseMzSig * sf;                            // Scale affects m/z width
-    var drMsPerBin = pusherUs > 0 ? pusherUs / 1000
-                   : (DR.length > 1 ? Math.abs(DR[1] - DR[0]) : 1);
+    var drMsPerBin = DR.length > 1 ? Math.abs(DR[1] - DR[0]) : 2 * Math.abs(DR[0]);
     var drSig = (preset.sigma_dr != null)
               ? preset.sigma_dr / drMsPerBin               // ms -> bins
               : baseMzSig;                                 // fallback: unscaled drift width
@@ -909,7 +903,7 @@ function getVisibleRange() {{
 }}
 
 // === Apply 2D heatmap (reads ONLY 2D controls) ===
-// Order: smooth → noise threshold → intensity transform.
+// Order: smooth → intensity transform → display-space noise cutoff/fade.
 // SMOOTH FIRST (was: noise-then-smooth) so that thresholding doesn't leave
 // soft halos around clipped regions — the blur diagnosis identified the old
 // order as a "softened edges around thresholded regions" contributor.

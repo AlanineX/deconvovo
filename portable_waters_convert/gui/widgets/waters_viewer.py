@@ -1,334 +1,472 @@
-"""Offline enhanced Waters HTML with real, unsmoothed TXT preview fallback."""
+"""Native Qt/Matplotlib Waters inspection; numerical work uses imms_view."""
 from __future__ import annotations
 
 from copy import deepcopy
-import json
+import csv
 import math
-import os
 from pathlib import Path
-import platform
 import shutil
+import tempfile
 import threading
 
 import numpy as np
+from matplotlib import colormaps
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.figure import Figure
+from matplotlib.ticker import EngFormatter
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QFileDialog, QLabel, QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPainter
+from PySide6.QtWidgets import QFileDialog, QLabel, QStackedWidget, QTabWidget, QVBoxLayout, QWidget
 
 from deconvovo.paths import local_path
+from gui.theme import mpl_rc
+from gui.widgets import plot_canvas
 from gui.widgets.plot_canvas import PlotCanvas
 
-
-def _webengine_allowed() -> bool:
-    if os.environ.get("DECONVOVO_DISABLE_WEBENGINE") == "1":
-        return False
-    if os.environ.get("DECONVOVO_ENABLE_HEADLESS_WEBENGINE") == "1":
-        return True
-    return not (
-        os.environ.get("QT_QPA_PLATFORM", "").casefold() in {"offscreen", "minimal"}
-        or (platform.system() == "Linux" and not os.environ.get("DISPLAY")
-            and not os.environ.get("WAYLAND_DISPLAY"))
-    )
+_EXPORT_KINDS = {"full_png", "heatmap_png", "mz_png", "drift_png", "heatmap_csv", "mz_csv", "drift_csv"}
+_INTENSITY_CAPTIONS = {
+    "linear": "I", "sqrt": r"$\sqrt{I}$", "cbrt": r"$I^{\frac{1}{3}}$",
+    "p4": r"$I^{\frac{1}{4}}$", "p5": r"$I^{\frac{1}{5}}$",
+    "log2": r"$\log_{2}(I+1)$", "log10": r"$\log_{10}(I+1)$",
+}
 
 
-try:
-    if not _webengine_allowed():
-        raise ImportError("WebEngine disabled for this process")
-    from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineUrlRequestInterceptor
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-    WEBENGINE_AVAILABLE = True
-except ImportError:
-    WEBENGINE_AVAILABLE = False
+def _profile_color():
+    return "#8dcfc4" if plot_canvas._dark_mode else "#257a72"
 
 
-def is_local_resource(url: QUrl) -> bool:
-    """The desktop viewer must never need or contact a remote resource."""
-    return url.scheme().casefold() in {"file", "data", "blob", "qrc", "about"}
+def _colormap(config):
+    name = config.get("defaults", {}).get("colormap", "Viridis")
+    scale = next((p["scale"] for p in config.get("presets", {}).get("colormap", [])
+                  if isinstance(p, dict) and p.get("name") == name), None)
+    if scale is None:
+        for spelling in (name, str(name).lower()):
+            if spelling in colormaps:
+                return colormaps[spelling]
+        from plotly.colors import get_colorscale
+        scale = get_colorscale(name)
+    from plotly.colors import unlabel_rgb
+    stops = [(float(position), tuple(channel / 255 for channel in unlabel_rgb(color))
+              if color.startswith("rgb") else color) for position, color in scale]
+    return LinearSegmentedColormap.from_list(str(name), stops)
 
 
-if WEBENGINE_AVAILABLE:
-    class _OfflineRequests(QWebEngineUrlRequestInterceptor):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.blocked_requests = 0
-
-        def interceptRequest(self, info):
-            if not is_local_resource(info.requestUrl()):
-                self.blocked_requests += 1
-                info.block(True)
+def _extent(centres, bounds):
+    if len(centres) > 1:
+        half = (centres[1] - centres[0]) / 2
+        return float(centres[0] - half), float(centres[-1] + half)
+    return bounds
 
 
-# Presentation changes only. The original document keeps its own data,
-# scientific transforms, linked axes, controls, and export handlers.
-_CONSOLE_STYLE = """
-(function() {
-  var style = document.getElementById('waters-console-style');
-  if (!style) { style=document.createElement('style'); style.id='waters-console-style';
-    document.head.appendChild(style); }
-  style.textContent = `
-    html,body{height:100%;width:100%;overflow:hidden;background:#111a24;color:#e5edf5}
-    body{display:flex;flex-direction:column;font-family:'Segoe UI',Arial,sans-serif}
-    #title,#subtitle,#toolbar,#exportpanel{display:none!important}
-    #main{flex:1;display:flex!important;align-items:stretch!important;flex-direction:column;min-height:0!important;
-      height:auto!important;overflow:hidden}
-    #plot{flex:1;height:auto!important;width:100%!important;min-width:0;min-height:0!important}
-  `;
-  var p=document.getElementById('plot');
-  function resize() {
-    if (!p || !p._fullLayout || typeof Plotly==='undefined') return;
-    var width=p.clientWidth, height=p.clientHeight;
-    if(width<200 || height<100) return; // hidden tabs are resized when visible
-    if (p._fullLayout.width===width && p._fullLayout.height===height && p.dataset.consoleStyled) return;
-    var layout={width:width,height:height,autosize:true,paper_bgcolor:'#111a24',
-      plot_bgcolor:'#111a24','font.color':'#e5edf5','font.size':11,
-      'margin.l':55,'margin.r':40,'margin.t':12,'margin.b':48};
-    ['xaxis','xaxis2','xaxis3','xaxis4','yaxis','yaxis2','yaxis3','yaxis4'].forEach(function(a){
-      layout[a+'.gridcolor']='#283442';layout[a+'.linecolor']='#536577';
-      layout[a+'.minor.gridcolor']='#283442';
-      layout[a+'.minor.showgrid']=false;
-      layout[a+'.tickfont.size']=10;layout[a+'.tickfont.color']='#8b9bad';
-      layout[a+'.title.font.size']=12;layout[a+'.title.font.color']='#e5edf5';
-    });
-    if(!p.dataset.consoleStyled) {
-      var profiles=[];p.data.forEach(function(t,i){if(t.type==='scatter')profiles.push(i)});
-      Plotly.restyle(p,{'line.color':'#8dcfc4','line.width':1.1},profiles);
-    }
-    p.dataset.consoleStyled='1'; Plotly.relayout(p,layout);
-  }
-  if (!window.watersConsoleResize) {
-    window.watersConsoleResize=resize;
-    new ResizeObserver(resize).observe(p);
-    window.addEventListener('resize',resize);
-  }
-  resize();
-  return !!(p && p._fullLayout);
-})()
-"""
+def _heatmap(ax, snapshot, config):
+    x = _extent(snapshot.mz_centres, tuple(snapshot.baked_mz_range))
+    y = _extent(snapshot.drift_centres, (0., float(snapshot.drift_centres[0] * 2)))
+    interpolation = {"off": "nearest", "fast": "bilinear", "best": "bicubic"}.get(
+        config.get("defaults", {}).get("render", "off"), "nearest")
+    return ax.imshow(snapshot.display2d, extent=(*x, *y), origin="lower", aspect="auto",
+                     interpolation=interpolation, cmap=_colormap(config))
 
 
-def _config_script(config: dict) -> str:
-    """Set real HTML controls, then use the existing viewer's apply functions."""
-    values = json.dumps(config.get("defaults", {}), ensure_ascii=True)
-    presets = json.dumps(config.get("presets", {}).get("colormap", []), ensure_ascii=True)
-    initial = config.get("initial_view") or {}
-    for key in ("mz_range", "drift_range"):
-        bounds = initial.get(key)
-        if bounds is not None and (not isinstance(bounds, (list, tuple)) or len(bounds) != 2
-                or not all(isinstance(value, (int, float)) and math.isfinite(value) for value in bounds)
-                or bounds[0] >= bounds[1]):
-            raise ValueError(f"The {key.replace('_', ' ')} must contain a finite minimum lower than its maximum.")
-    ranges = json.dumps(initial, ensure_ascii=True)
-    return """
-    (function(){
-      var d=DEFAULTS, presets=PRESETS, ranges=RANGES, changed=false, rebinned=false;
-      var map={smooth_2d:'sm2d',scale:'mzscale',noise_2d:'noise2d',denoise:'denoise',
-        smooth_drift:'smdrift',noise_drift:'noisedrift',ms_mode:'msmode',noise_mz:'noisemz',
-        mz_bins:'nbins',drift_bins:'dbins',colormap:'cmap',render:'render',z_scale:'zscale'};
-      if (typeof applyAll!=='function') return false;
-      var rawLo=typeof RAW_MZ_LO0==='undefined'?HM_MZ_LO0:RAW_MZ_LO0;
-      var rawHi=typeof RAW_MZ_HI0==='undefined'?HM_MZ_HI0:RAW_MZ_HI0;
-      if(ranges.mz_range && ((ranges.mz_range[0]<HM_MZ_LO0 && rawLo<HM_MZ_LO0) ||
-                            (ranges.mz_range[1]>HM_MZ_HI0 && rawHi>HM_MZ_HI0))) {
-        window.watersConsoleConfigError='The current HTML covers m/z '+HM_MZ_LO0+' to '+HM_MZ_HI0+
-          '. Use Process & view to regenerate the requested range.';
-        return window.watersConsoleConfigError;
-      }
-      window.watersConsoleConfigError='';
-      Object.keys(map).forEach(function(key){
-        if (!(key in d)) return;
-        var el=document.getElementById(map[key]); if(!el)return;
-        var requested=d[key], value=null;
-        Array.from(el.options).some(function(option){
-          var match;
-          if(key==='colormap') match=option.textContent.trim()===String(requested);
-          else if(typeof requested==='object') {
-            try {var obj=JSON.parse(option.value);
-              match=Object.keys(requested).every(function(k){return obj[k]===requested[k]}) &&
-                Object.keys(obj).length===Object.keys(requested).length;
-            } catch(e){match=false;}
-          } else match=option.value===String(requested);
-          if(match){value=option.value;return true;} return false;
-        });
-        if(value===null){
-          if(key==='colormap') {
-            var custom=presets.find(function(p){return typeof p==='object'&&p.name===requested});
-            if(!custom)return; value=JSON.stringify(custom.scale);
-          } else value=typeof requested==='object'?JSON.stringify(requested):String(requested);
-          el.add(new Option(typeof requested==='object'?'Custom':String(requested),value));
-        }
-        if(el.value!==value){el.value=value;changed=true;
-          if(key==='mz_bins'||key==='drift_bins')rebinned=true;}
-      });
-      var signature=JSON.stringify(ranges), patch={};
-      var rangeChanged=Object.keys(ranges).length && signature!==window.watersConsoleRanges;
-      if(rangeChanged) {
-        [['mz_range',['xaxis2','xaxis4'],[HM_MZ_LO0,HM_MZ_HI0]],
-         ['drift_range',['yaxis','yaxis2'],[0,nD_native*(pusherUs>0?pusherUs/1000:1)]]].forEach(function(item){
-          if(!(item[0] in ranges))return;
-          item[1].forEach(function(axis){
-            patch[axis+'.range']=(ranges[item[0]]||item[2]).slice();
-            patch[axis+'.autorange']=false;
-          });
-        });
-        window.watersConsoleRanges=signature;
-      }
-      window.watersPendingRender=Promise.resolve(window.watersPendingRender).then(function(){
-        if(changed)return rebinned?rebinFull():applyAll();
-      }).then(function(){
-        if(rangeChanged)return Plotly.relayout(P,patch);
-      }).then(function(){
-        if(rangeChanged)return updateMarginals();
-      }).catch(function(error){window.watersConsoleConfigError=error.message;});
-      return true;
-    })()
-    """.replace("DEFAULTS", values).replace("PRESETS", presets).replace("RANGES", ranges)
+def _style_axes(figure, axes):
+    rc = mpl_rc(dark=plot_canvas._dark_mode)
+    figure.set_facecolor(rc["figure.facecolor"])
+    for ax in axes:
+        ax.set_facecolor(rc["axes.facecolor"])
+        ax.tick_params(colors=rc["xtick.color"], labelsize=9)
+        ax.xaxis.get_offset_text().set_color(rc["xtick.color"])
+        ax.yaxis.get_offset_text().set_color(rc["ytick.color"])
+        for label in (ax.xaxis.label, ax.yaxis.label):
+            label.set_color(rc["axes.labelcolor"])
+            label.set_size(10)
+        for spine in ax.spines.values():
+            spine.set_color(rc["axes.edgecolor"])
 
 
-class _PreviewSignals(QObject):
+class _Signals(QObject):
     completed = Signal(object)
 
 
-class _PreviewTask(QRunnable):
-    def __init__(self, generation: int, record: dict, config: dict):
+class _RenderTask(QRunnable):
+    def __init__(self, generation, record, source, data, config, viewport):
         super().__init__()
-        self.generation, self.record, self.config = generation, record, config
+        self.generation = generation
+        self.record, self.source, self.data = record, source, data
+        self.config, self.viewport = config, viewport
         self.cancelled = threading.Event()
-        self.signals = _PreviewSignals()
+        self.signals = _Signals()
 
     def run(self):
-        result = {"generation": self.generation, "errors": []}
+        result = {"task": self, "generation": self.generation}
         try:
-            from deconvovo.io import read_im_txt, read_ms_txt
-            from deconvovo.ccs_peak_pick import extract_drift_profile
-            ms = self.record.get("ms")
-            if ms and Path(ms).is_file():
-                try:
-                    result["ms"] = read_ms_txt(Path(ms))
-                except Exception as exc:
-                    result["errors"].append(f"Mass spectrum: {exc}")
-            if self.cancelled.is_set():
-                return
-            im = self.record.get("im")
-            if im and Path(im).is_file():
-                try:
-                    data = read_im_txt(Path(im))
-                    if not data.empty:
-                        view = (self.config.get("initial_view") or {}).get("mz_range")
-                        lo, hi = view if view else (float(data.mz.min()), float(data.mz.max()))
-                        visible = data[(data.mz >= lo) & (data.mz <= hi) & (data.intensity > 0)]
-                        # This is a labelled raw overview, never a scientific rebin.
-                        stride = max(1, (len(visible) + 19999) // 20000)
-                        result["im"] = visible.iloc[::stride].to_numpy(copy=True)
-                        result["im_count"] = len(visible)
-                        result["stride"] = stride
-                        result["mz_range"] = (lo, hi)
-                        if not self.cancelled.is_set():
-                            # Reuse the established extractor, retaining raw-bin
-                            # units and unsmoothed intensity throughout the preview.
-                            profile = extract_drift_profile(data, (lo + hi) / 2, (hi - lo) / 2)
-                            result["mobiligram"] = (np.arange(len(profile)), profile)
-                except Exception as exc:
-                    result["errors"].append(f"Mobility data: {exc}")
+            if not self.cancelled.is_set():
+                from deconvovo.imms_view import load_view_data
+                from deconvovo.io import find_pusher_for_run, find_pusher_period
+                data = self.data
+                if data is None:
+                    raw = self.record.get("raw")
+                    pusher = find_pusher_period(Path(raw)) if raw else None
+                    if pusher is None:
+                        pusher = find_pusher_for_run(Path(self.record["im"]).parent,
+                            self.record.get("run_name", ""), self.source)
+                    data = load_view_data(self.record["im"], self.record.get("ms"),
+                                          pusher_us=pusher, config=self.config)
+                if not self.cancelled.is_set():
+                    result.update(data=data, snapshot=data.render(self.config, viewport=self.viewport))
         except Exception as exc:
-            result["errors"].append(str(exc))
-        if not self.cancelled.is_set():
-            try:
-                self.signals.completed.emit(result)
-            except RuntimeError:
-                pass  # A closing application may have destroyed the receiver.
+            result["error"] = str(exc)
+        result["cancelled"] = self.cancelled.is_set()
+        try:
+            self.signals.completed.emit(result)
+        except RuntimeError:
+            pass
+
+
+def _write_csv(snapshot, kind, destination):
+    drift_column = "drift_time_ms" if snapshot.drift_unit == "ms" else "drift_bin"
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=destination.parent,
+                                     suffix=".csv", delete=False) as stream:
+        staged = Path(stream.name)
+        try:
+            writer = csv.writer(stream)
+            if kind == "heatmap_csv":
+                writer.writerow(["mz", drift_column, "display_value", "intensity_transform"])
+                xs = snapshot.mz_centres[snapshot.visible_mz_slice]
+                ys = snapshot.drift_centres[snapshot.visible_drift_slice]
+                z = snapshot.display2d[snapshot.visible_drift_slice, snapshot.visible_mz_slice]
+                for drift, row in zip(ys, z):
+                    writer.writerows((format(mz, ".17g"), format(drift, ".17g"),
+                                      format(value, ".17g"), snapshot.transform) for mz, value in zip(xs, row))
+            else:
+                drift = kind == "drift_csv"
+                coordinate = snapshot.drift_centres if drift else snapshot.ms_mz
+                values = snapshot.drift_intensity if drift else snapshot.ms_intensity
+                low, high = snapshot.drift_range if drift else snapshot.mz_range
+                writer.writerow([drift_column if drift else "mz", "display_value"])
+                for x, y in zip(coordinate, values):
+                    if np.isnan(x) or np.isnan(y):
+                        writer.writerow(["", ""])
+                    elif low <= x <= high:
+                        writer.writerow([format(x, ".17g"), format(y, ".17g")])
+            stream.flush()
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
+    try:
+        staged.replace(destination)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+class _CsvTask(QRunnable):
+    def __init__(self, snapshot, kind, destination):
+        super().__init__()
+        self.snapshot, self.kind, self.destination = snapshot, kind, destination
+        self.signals = _Signals()
+
+    def run(self):
+        result = {"task": self, "path": str(self.destination), "kind": self.kind}
+        try:
+            _write_csv(self.snapshot, self.kind, self.destination)
+        except Exception as exc:
+            result["error"] = str(exc)
+        try:
+            self.signals.completed.emit(result)
+        except RuntimeError:
+            pass
+
+
+class _PlotToolbar(NavigationToolbar2QT):
+    # Saving and layout editing must go through the application's guarded
+    # exports and physically shared GridSpec, respectively.
+    toolitems = tuple(item for item in NavigationToolbar2QT.toolitems
+                      if item[0] in {"Home", "Back", "Forward", "Pan", "Zoom"})
+
+    def __init__(self, canvas, parent, reset):
+        self._reset = reset
+        super().__init__(canvas, parent, coordinates=False)
+
+    def home(self, *args):
+        self._reset()
+
+    def _icon(self, name):
+        icon = super()._icon(name)
+        pixmap = icon.pixmap(24, 24)
+        painter = QPainter(pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(pixmap.rect(), QColor("#e5edf5" if plot_canvas._dark_mode else "#273746"))
+        painter.end()
+        return QIcon(pixmap)
+
+    def refresh_icons(self):
+        for _text, _tooltip, image, callback in self.toolitems:
+            self._actions[callback].setIcon(self._icon(image + ".png"))
 
 
 class WatersViewerWidget(QWidget):
-    """Selected acquisition inspection; large HTML is loaded from a file URL."""
+    """Native linked heatmap and profiles sharing one numerical snapshot."""
+
+    ready_changed = Signal(bool)
+    render_finished = Signal(object)
+    export_finished = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._generation = 0
-        self._closed = False
-        self._record: dict = {}
-        self._config: dict = {}
-        self._viewer_path: Path | None = None
-        self._tasks: list[_PreviewTask] = []
-        self._pool = QThreadPool.globalInstance()
-        self._html_ready = False
-        self._html_generation = 0
-        self._profile = None
-        self.web_view = None
-        self._config_timer = QTimer(self)
-        self._config_timer.setSingleShot(True)
-        self._config_timer.setInterval(120)
-        self._config_timer.timeout.connect(self._apply_pending_config)
-
+        self._closed = self._ready = False
+        self._record, self._config = {}, {}
+        self._source = self._data = self._snapshot = self._viewport = None
+        self._updating_axes = False
+        self._pending_exports = []
+        self._tasks, self._exports = [], []
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.setInterval(120)
+        self._render_timer.timeout.connect(self._start_render)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(7)
+        layout.setSpacing(4)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         layout.addWidget(self.tabs, 1)
         self.im_stack = QStackedWidget()
         self.empty = QLabel()
-        self.empty.setObjectName("watersViewerEmpty")
         self.empty.setWordWrap(True)
         self.empty.setAlignment(Qt.AlignCenter)
-        self.empty.setMargin(24)
+        self.empty.setMargin(20)
         self.im_stack.addWidget(self.empty)
-        self.overview_plot = PlotCanvas(figsize=(7, 5), nrows=2)
-        self.im_stack.addWidget(self.overview_plot)
-        if WEBENGINE_AVAILABLE:
-            self._profile = QWebEngineProfile(self)
-            self._interceptor = _OfflineRequests(self._profile)
-            self._profile.setUrlRequestInterceptor(self._interceptor)
-            self._profile.downloadRequested.connect(self._download_file)
-            self.web_view = QWebEngineView()
-            self.web_view.setPage(QWebEnginePage(self._profile, self.web_view))
-            self.web_view.loadFinished.connect(self._html_loaded)
-            self.im_stack.addWidget(self.web_view)
+        page = QWidget()
+        plot_layout = QVBoxLayout(page)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        plot_layout.setSpacing(0)
+        self.plot = PlotCanvas(figsize=(7, 4))
+        self.figure, self.canvas = self.plot.fig, self.plot.canvas
+        self.figure.clear()
+        self.figure.set_layout_engine(None)
+        grid = self.figure.add_gridspec(2, 3, width_ratios=[1, 5, 0.15],
+            height_ratios=[4, 1.2], left=0.095, right=0.93, bottom=0.14, top=0.96,
+            hspace=0.045, wspace=0.06)
+        self.ax_heatmap = self.figure.add_subplot(grid[0, 1])
+        self.ax_drift = self.figure.add_subplot(grid[0, 0], sharey=self.ax_heatmap)
+        self.ax_ms = self.figure.add_subplot(grid[1, 1], sharex=self.ax_heatmap)
+        self.ax_colorbar = self.figure.add_subplot(grid[0, 2])
+        self.plot.axes = np.array([[self.ax_drift, self.ax_heatmap, self.ax_ms, self.ax_colorbar]])
+        plot_layout.addWidget(self.plot, 1)
+        self.toolbar = _PlotToolbar(self.canvas, page, lambda: self.reset_view())
+        self.toolbar.setObjectName("watersPlotTools")
+        plot_layout.addWidget(self.toolbar)
+        self.im_stack.addWidget(page)
+        self._plot_page = page
         self.tabs.addTab(self.im_stack, "IM-MS")
-        self.mass_plot = PlotCanvas(figsize=(7, 5))
-        self.mobility_plot = PlotCanvas(figsize=(7, 5))
+        self.mass_plot = PlotCanvas(figsize=(7, 4))
+        self.mobility_plot = PlotCanvas(figsize=(7, 4))
         self.tabs.addTab(self.mass_plot, "Mass profile")
         self.tabs.addTab(self.mobility_plot, "Mobiligram")
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setProperty("subtitle", True)
         layout.addWidget(self.status)
-        self.btn_browser = QPushButton("Open enhanced viewer in browser")
-        self.btn_browser.setProperty("secondary", True)
-        self.btn_browser.clicked.connect(self.open_browser)
-        layout.addWidget(self.btn_browser, 0, Qt.AlignRight)
-        self.clear("Select an acquisition. Process & view creates its offline interactive viewer.")
+        for ax in (self.ax_heatmap, self.ax_drift, self.ax_ms):
+            ax.callbacks.connect("xlim_changed", self._axes_changed)
+            ax.callbacks.connect("ylim_changed", self._axes_changed)
+        self.canvas.mpl_connect("scroll_event", self._scroll_zoom)
+        self.clear("Select an acquisition. Process & view prepares the native IM-MS plots.")
 
     @property
-    def blocked_requests(self) -> int:
-        return self._interceptor.blocked_requests if self._profile is not None else 0
+    def is_ready(self):
+        return self._ready
 
-    def _download_file(self, download):
-        suggested = download.downloadFileName()
-        suffix = Path(suggested).suffix.lower() or ".csv"
-        path, _ = QFileDialog.getSaveFileName(self, "Export viewer data or image", suggested,
-                                             f"Viewer export (*{suffix})")
-        if path:
-            try:
-                destination = self._output_path(path, {suffix})
-            except ValueError as error:
-                download.cancel()
-                self.status.setText(str(error))
-                self.status.show()
-                return
-            download.setDownloadDirectory(str(destination.parent))
-            download.setDownloadFileName(destination.name)
-            if self._html_ready:
-                self.status.hide()
-            download.accept()
+    @property
+    def snapshot(self):
+        return self._snapshot
+
+    def _set_ready(self, ready):
+        if ready != self._ready:
+            self._ready = ready
+            self.ready_changed.emit(ready)
+
+    def _cancel_renders(self):
+        for task in self._tasks:
+            task.cancelled.set()
+
+    def clear(self, message):
+        self._generation += 1
+        self._cancel_renders()
+        self._render_timer.stop()
+        self._data = self._snapshot = self._viewport = None
+        self._record = {}
+        for kind, destination in self._pending_exports:
+            self.export_finished.emit({"kind": kind, "path": str(destination),
+                                       "error": "Selection changed before export completed."})
+        self._pending_exports.clear()
+        self._set_ready(False)
+        self.empty.setText(message)
+        self.im_stack.setCurrentWidget(self.empty)
+        self.status.setText(message)
+        self.status.show()
+
+    def set_run(self, record, config, source=None):
+        if self._closed:
+            return
+        self.clear("Loading converted spectra…")
+        self._record, self._config = dict(record), deepcopy(config)
+        self._source = source
+        self.setToolTip(str(record.get("run_name", "")))
+        if not record.get("im") or not Path(record["im"]).is_file():
+            self.empty.setText("Process & view converts this acquisition before native inspection.")
+            self.status.setText("No converted IM table is available for the selected acquisition.")
+            return
+        self._start_render()
+
+    def apply_config(self, config):
+        if self._closed:
+            return
+        config = deepcopy(config)
+        for name in ("mz_range", "drift_range"):
+            bounds = (config.get("initial_view") or {}).get(name)
+            if bounds is not None and (len(bounds) != 2 or
+                    not all(math.isfinite(float(value)) for value in bounds) or bounds[0] >= bounds[1]):
+                raise ValueError(f"The {name.replace('_', ' ')} needs a finite minimum lower than its maximum.")
+        if config == self._config:
+            return
+        if config.get("initial_view", {}) != self._config.get("initial_view", {}):
+            self._viewport = None
+        self._config = config
+        self._generation += 1
+        self._cancel_renders()
+        self._set_ready(False)
+        self._render_timer.start()
+
+    def reset_view(self):
+        self._viewport = None
+        self._render_timer.stop()
+        if self._record.get("im"):
+            self._start_render()
+
+    def _start_render(self):
+        if self._closed or not self._record.get("im"):
+            return
+        self._generation += 1
+        self._cancel_renders()
+        self._set_ready(False)
+        task = _RenderTask(self._generation, dict(self._record), self._source,
+                           self._data, deepcopy(self._config), deepcopy(self._viewport))
+        task.signals.completed.connect(self._render_done)
+        self._tasks.append(task)
+        self._pool.start(task)
+
+    @Slot(object)
+    def _render_done(self, result):
+        if result["task"] in self._tasks:
+            self._tasks.remove(result["task"])
+        if self._closed or result["generation"] != self._generation or result["cancelled"]:
+            return
+        if result.get("error"):
+            self.status.setText(result["error"])
+            self.status.show()
+            for kind, destination in self._pending_exports:
+                self.export_finished.emit({"kind": kind, "path": str(destination), "error": result["error"]})
+            self._pending_exports.clear()
+            return
+        self._data, self._snapshot = result["data"], result["snapshot"]
+        self._draw_snapshot()
+        self.im_stack.setCurrentWidget(self._plot_page)
+        if self._snapshot.drift_unit == "bins":
+            self.status.setText("Native view · raw drift-bin centres; pusher timing metadata is unavailable.")
+            self.status.show()
         else:
-            download.cancel()
+            self.status.hide()
+        self._set_ready(True)
+        self.render_finished.emit(self._snapshot)
+        pending, self._pending_exports = self._pending_exports, []
+        for kind, destination in pending:
+            self._save_current(kind, destination)
 
-    def _output_path(self, path: Path | str, suffixes: set[str]) -> Path:
+    def _draw_snapshot(self):
+        snapshot = self._snapshot
+        self._updating_axes = True
+        try:
+            for ax in (self.ax_heatmap, self.ax_drift, self.ax_ms, self.ax_colorbar):
+                ax.clear()
+                if ax is not self.ax_colorbar:
+                    ax.callbacks.connect("xlim_changed", self._axes_changed)
+                    ax.callbacks.connect("ylim_changed", self._axes_changed)
+            image = _heatmap(self.ax_heatmap, snapshot, self._config)
+            self.ax_drift.plot(snapshot.drift_intensity, snapshot.drift_centres,
+                               color=_profile_color(), linewidth=1.1)
+            self.ax_ms.plot(snapshot.ms_mz, snapshot.ms_intensity, color=_profile_color(), linewidth=1)
+            self.ax_drift.invert_xaxis()
+            self.ax_heatmap.set_xlim(snapshot.mz_range)
+            self.ax_heatmap.set_ylim(snapshot.drift_range)
+            self.ax_drift.set_ylabel("Drift time (ms)" if snapshot.drift_unit == "ms" else "Drift bin")
+            self.ax_ms.set_xlabel("m/z")
+            self.ax_ms.set_ylabel("Intensity")
+            self.ax_heatmap.tick_params(labelbottom=False, labelleft=False)
+            self.ax_ms.yaxis.set_major_formatter(EngFormatter(sep=""))
+            self.ax_drift.tick_params(axis="x", bottom=False, labelbottom=False)
+            self.ax_drift.xaxis.get_offset_text().set_visible(False)
+            colorbar = self.figure.colorbar(image, cax=self.ax_colorbar)
+            colorbar.set_label(_INTENSITY_CAPTIONS[snapshot.transform], usetex=False)
+            for ax in (self.ax_drift, self.ax_ms):
+                ax.grid(True, color="#283442", linewidth=0.4, alpha=0.5)
+            _style_axes(self.figure, (self.ax_heatmap, self.ax_drift, self.ax_ms, self.ax_colorbar))
+            for plot, coordinate, intensity, label in (
+                (self.mass_plot, snapshot.ms_mz, snapshot.ms_intensity, "m/z"),
+                (self.mobility_plot, snapshot.drift_centres, snapshot.drift_intensity,
+                 "Drift time (ms)" if snapshot.drift_unit == "ms" else "Drift bin")):
+                plot.clear()
+                plot.ax().plot(coordinate, intensity, color=_profile_color(), linewidth=1.1)
+                plot.ax().set(xlabel=label, ylabel="Intensity")
+                plot.ax().set_xlim(snapshot.mz_range if plot is self.mass_plot else snapshot.drift_range)
+                plot.refresh()
+            self.canvas.draw_idle()
+        finally:
+            self._updating_axes = False
+
+    def refresh_theme(self):
+        """Refresh presentation only; scientific arrays and viewport stay fixed."""
+        for plot in (self.plot, self.mass_plot, self.mobility_plot):
+            for ax in plot.fig.axes:
+                for line in ax.lines:
+                    line.set_color(_profile_color())
+            _style_axes(plot.fig, plot.fig.axes)
+            plot.refresh()
+        self.toolbar.refresh_icons()
+
+    def _axes_changed(self, _axis):
+        if self._updating_axes or not self._ready or self._closed:
+            return
+        self._viewport = {"mz_range": list(self.ax_heatmap.get_xlim()),
+                          "drift_range": list(self.ax_heatmap.get_ylim())}
+        self._render_timer.start()
+
+    def _scroll_zoom(self, event):
+        if not self._ready or event.inaxes not in (self.ax_heatmap, self.ax_drift, self.ax_ms):
+            return
+        factor = 0.8 if event.button == "up" else 1.25
+        self._updating_axes = True
+        try:
+            if event.inaxes in (self.ax_heatmap, self.ax_ms):
+                low, high = self.ax_heatmap.get_xlim()
+                anchor = event.xdata if event.xdata is not None else (low + high) / 2
+                self.ax_heatmap.set_xlim(anchor + (low - anchor) * factor, anchor + (high - anchor) * factor)
+            if event.inaxes in (self.ax_heatmap, self.ax_drift):
+                low, high = self.ax_heatmap.get_ylim()
+                anchor = event.ydata if event.ydata is not None else (low + high) / 2
+                self.ax_heatmap.set_ylim(anchor + (low - anchor) * factor, anchor + (high - anchor) * factor)
+        finally:
+            self._updating_axes = False
+        self._axes_changed(self.ax_heatmap)
+        self.canvas.draw_idle()
+
+    def _output_path(self, path, suffixes):
         destination = local_path(path).resolve()
         if any(parent.suffix.casefold() == ".raw" for parent in (destination, *destination.parents)):
             raise ValueError("Choose an export location outside RAW acquisitions.")
-        if any(self._record.get(key) and destination == Path(self._record[key]).resolve()
-               for key in ("ms", "im")):
+        if any(self._record.get(key) and destination == Path(self._record[key]).resolve() for key in ("ms", "im")):
             raise ValueError("An export cannot replace a source MS or IM table.")
         if not destination.suffix:
             destination = destination.with_suffix(sorted(suffixes)[0])
@@ -336,199 +474,96 @@ class WatersViewerWidget(QWidget):
             raise ValueError("Choose an export filename ending in " + " or ".join(sorted(suffixes)) + ".")
         return destination
 
-    def _cancel_previews(self):
-        for task in self._tasks:
-            task.cancelled.set()
-        self._tasks.clear()
-
-    def clear(self, message: str):
-        self._generation += 1
-        self._cancel_previews()
-        self._record = {}
-        self._viewer_path = None
-        self._html_ready = False
-        self._config_timer.stop()
-        if self.web_view:
-            self.web_view.stop()
-        self.empty.setText(message)
-        self.im_stack.setCurrentWidget(self.empty)
-        self.status.setText(message)
-        self.status.show()
-        self.btn_browser.setEnabled(False)
-        for plot in (self.overview_plot, self.mass_plot, self.mobility_plot):
-            plot.clear()
-
-    def set_run(self, record: dict, config: dict, source: Path | None = None):
-        """Display a snapshot and reject results from an older selection."""
-        if self._closed:
-            return
-        self.clear("Loading selected acquisition…")
-        self._record = dict(record)
-        self._config = deepcopy(config)
-        self.setToolTip(str(record.get("run_name", "")))
-        viewer = record.get("viewer")
-        self._viewer_path = Path(viewer).resolve() if viewer and Path(viewer).is_file() else None
-        self.btn_browser.setEnabled(self._viewer_path is not None)
-        has_text = any(record.get(key) and Path(record[key]).is_file() for key in ("ms", "im"))
-        if self._viewer_path and self.web_view:
-            self._html_generation = self._generation
-            self.im_stack.setCurrentWidget(self.web_view)
-            # setHtml cannot reliably carry multi-megabyte real acquisitions.
-            self.web_view.load(QUrl.fromLocalFile(str(self._viewer_path)))
-            self.status.setText("Loading offline interactive viewer…")
-        elif self._viewer_path:
-            self.status.setText("Embedded browser unavailable. Open the offline enhanced HTML in your browser.")
-            self.empty.setText("The enhanced viewer is ready. Open it in your browser, or inspect the raw TXT preview here.")
-        elif not has_text:
-            self.empty.setText("RAW acquisition selected. Process & view converts the data and creates an offline viewer.")
-            self.status.setText("No converted spectrum available for this acquisition yet.")
-        else:
-            self.empty.setText("Reading converted spectra in the background…")
-            self.status.setText("Raw preview loading. Process & view creates the full enhanced HTML.")
-        if has_text:
-            task = _PreviewTask(self._generation, dict(record), deepcopy(config))
-            task.signals.completed.connect(self._preview_loaded)
-            self._tasks.append(task)
-            self._pool.start(task)
-
-    @Slot(object)
-    def _preview_loaded(self, result: dict):
-        if self._closed or result["generation"] != self._generation:
-            return
-        self._tasks.clear()
-        ms = result.get("ms")
-        im = result.get("im")
-        for plot in (self.overview_plot, self.mass_plot, self.mobility_plot):
-            plot.clear()
-        if ms is not None and len(ms[0]):
-            for ax in (self.mass_plot.ax(), self.overview_plot.ax(1)):
-                ax.plot(*ms, color="#8dcfc4", linewidth=0.85)
-                ax.set(xlabel="m/z", ylabel="Raw intensity")
-                if result.get("mz_range"):
-                    ax.set_xlim(*result["mz_range"])
-            self.mass_plot.ax().set_title("Raw mass spectrum · no smoothing", fontsize=10)
-        else:
-            self.mass_plot.ax().text(0.5, 0.5, "No readable mass spectrum", transform=self.mass_plot.ax().transAxes, ha="center")
-        if im is not None and len(im):
-            from matplotlib.colors import LogNorm
-            self.overview_plot.ax().scatter(im[:, 0], im[:, 1], c=im[:, 2],
-                s=2, cmap="viridis", norm=LogNorm(), linewidths=0, rasterized=True)
-            self.overview_plot.ax().set(xlabel="m/z", ylabel="Raw drift bin")
-            sampling = f" · every {result['stride']}th point" if result["stride"] > 1 else ""
-            self.overview_plot.ax().set_title("Raw IM-MS scatter preview" + sampling, fontsize=10)
-        else:
-            self.overview_plot.ax().text(0.5, 0.5, "No readable mobility data", transform=self.overview_plot.ax().transAxes, ha="center")
-        profile = result.get("mobiligram")
-        if profile is not None:
-            self.mobility_plot.ax().plot(*profile, color="#8dcfc4", linewidth=1.3)
-            lo, hi = result["mz_range"]
-            self.mobility_plot.ax().set(xlabel="Raw drift bin", ylabel="Summed raw intensity",
-                title=f"Unsmoothed mobiligram · m/z {lo:g}–{hi:g}")
-        else:
-            self.mobility_plot.ax().text(0.5, 0.5, "No readable mobiligram", transform=self.mobility_plot.ax().transAxes, ha="center")
-        for plot in (self.overview_plot, self.mass_plot, self.mobility_plot):
-            plot.refresh()
-        if self.im_stack.currentWidget() != self.web_view:
-            if (ms is not None and len(ms[0])) or (im is not None and len(im)):
-                self.im_stack.setCurrentWidget(self.overview_plot)
-                self.status.setText("Raw preview · drift bins · no smoothing. " +
-                    ("Full offline viewer available in browser." if self._viewer_path else "Process & view creates the enhanced viewer."))
-            else:
-                self.empty.setText("Converted files contain no readable spectrum. Process & view recreates the results.")
-                self.status.setText("; ".join(result["errors"]) or "No readable spectrum in the selected files.")
-
-    def apply_config(self, config: dict):
-        """Debounce live controls and numeric ranges on the existing plot."""
-        _config_script(config)  # validate before accepting a programmatic change
-        self._config = deepcopy(config)
-        if self._html_ready:
-            self._config_timer.start()
-
-    @Slot(bool)
-    def _html_loaded(self, success: bool):
-        if self._closed or self._html_generation != self._generation or not self._viewer_path:
-            return
-        loaded_url = self.web_view.url()
-        if not loaded_url.isLocalFile() or Path(loaded_url.toLocalFile()).resolve() != self._viewer_path.resolve():
-            return
-        self._html_ready = success
-        if success:
-            self.web_view.page().runJavaScript(_CONSOLE_STYLE)
-            self._apply_pending_config()
-            caption = "Offline interactive viewer · controls and linked profiles use the exported data."
-            self.status.setText(caption)
-            self.tabs.setTabToolTip(0, caption)
-            self.status.hide()
-        else:
-            self.status.setText("Embedded viewer could not load. Open the enhanced HTML in your browser.")
-            self.status.show()
-            self.im_stack.setCurrentWidget(self.overview_plot if self._record.get("ms") else self.empty)
-
-    def _apply_pending_config(self):
-        if self._closed or not self._html_ready or not self.web_view:
-            return
-        def applied(result):
-            if isinstance(result, str) and result and not self._closed:
-                self.status.setText(result)
-                self.status.show()
-            elif result is True and not self._closed and self.status.text().startswith("The current HTML covers m/z "):
-                self.status.hide()
-
-        self.web_view.page().runJavaScript(_config_script(self._config), applied)
-
-    def open_browser(self):
-        if self._viewer_path and self._viewer_path.is_file():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._viewer_path)))
-
-    def export_current(self, kind: str):
-        """Capture the live Plotly viewport through the offline HTML exporter."""
-        if kind not in {"full_png", "heatmap_png", "mz_png", "drift_png",
-                        "heatmap_csv", "mz_csv", "drift_csv"}:
+    def export_current(self, kind, destination=None):
+        if kind not in _EXPORT_KINDS:
             raise ValueError("Unknown current-view export.")
-        if self._closed or not self._html_ready or not self.web_view:
+        if self._closed or not self._record.get("im"):
             raise ValueError("Process & view before exporting the current view.")
-        # Flush a pending control change before queueing the capture. Both
-        # scripts execute on the same page; the exporter waits for Plotly.
-        self._config_timer.stop()
-        self._apply_pending_config()
-        script = """
-        (function(){
-          if(typeof watersExportCurrent!=='function') return false;
-          watersExportCurrent(KIND).catch(function(error){
-            alert('Unable to export the current view: '+error.message);
-          });
-          return true;
-        })()
-        """.replace("KIND", json.dumps(kind))
-
-        def started(available):
-            if not available and not self._closed:
-                self.status.setText("Regenerate this viewer to enable current-view PNG and CSV exports.")
-                self.status.show()
-
-        self.web_view.page().runJavaScript(script, started)
-
-    def export_html(self, destination: Path) -> Path:
-        """Copy the existing single-file offline artifact without regeneration."""
-        if self._viewer_path is None or not self._viewer_path.is_file():
-            raise ValueError("Process & view before exporting portable HTML.")
-        destination = self._output_path(destination, {".html", ".htm"})
-        if destination.resolve() != self._viewer_path.resolve():
-            shutil.copyfile(self._viewer_path, destination)
+        suffix = ".csv" if kind.endswith("csv") else ".png"
+        if destination is None:
+            name = self._record.get("run_name", "waters") + "_current_" + kind.rsplit("_", 1)[0] + suffix
+            selected, _ = QFileDialog.getSaveFileName(self, "Export current native view", name,
+                                                       f"Viewer export (*{suffix})")
+            if not selected:
+                return None
+            destination = Path(selected)
+        destination = self._output_path(destination, {suffix})
+        if self._render_timer.isActive() or not self._ready:
+            self._pending_exports.append((kind, destination))
+            if self._render_timer.isActive():
+                self._render_timer.stop()
+                self._start_render()
+        else:
+            self._save_current(kind, destination)
         return destination
 
-    def wait_for_workers(self, timeout_ms: int = 5000) -> bool:
-        self._cancel_previews()
+    def _save_current(self, kind, destination):
+        if kind.endswith("csv"):
+            task = _CsvTask(self._snapshot, kind, destination)
+            task.signals.completed.connect(self._export_done)
+            self._exports.append(task)
+            self._pool.start(task)
+            return
+        self.canvas.draw()
+        if kind == "full_png":
+            self.figure.savefig(destination, dpi=self.figure.dpi * 3)
+        else:
+            figure = Figure(figsize=self.figure.get_size_inches(), dpi=self.figure.dpi)
+            FigureCanvasAgg(figure)
+            ax = figure.add_subplot(111)
+            snapshot = self._snapshot
+            if kind == "heatmap_png":
+                image = _heatmap(ax, snapshot, self._config)
+                ax.set(xlim=snapshot.mz_range, ylim=snapshot.drift_range, xlabel="m/z",
+                    ylabel="Drift time (ms)" if snapshot.drift_unit == "ms" else "Drift bin")
+                colorbar = figure.colorbar(image, ax=ax)
+                colorbar.set_label(_INTENSITY_CAPTIONS[snapshot.transform], usetex=False)
+            elif kind == "mz_png":
+                ax.plot(snapshot.ms_mz, snapshot.ms_intensity, color=_profile_color(), linewidth=1)
+                ax.set(xlim=snapshot.mz_range, xlabel="m/z", ylabel="Intensity")
+            else:
+                ax.plot(snapshot.drift_centres, snapshot.drift_intensity, color=_profile_color(), linewidth=1)
+                ax.set(xlim=snapshot.drift_range,
+                    xlabel="Drift time (ms)" if snapshot.drift_unit == "ms" else "Drift bin", ylabel="Intensity")
+            _style_axes(figure, figure.axes)
+            figure.tight_layout()
+            figure.savefig(destination, dpi=figure.dpi * 3)
+            figure.clear()
+        self.export_finished.emit({"path": str(destination), "kind": kind})
+
+    @Slot(object)
+    def _export_done(self, result):
+        if result["task"] in self._exports:
+            self._exports.remove(result["task"])
+        if result.get("error") and not self._closed:
+            self.status.setText(result["error"])
+            self.status.show()
+        self.export_finished.emit({key: value for key, value in result.items() if key != "task"})
+
+    def open_browser(self):
+        """Optional standalone HTML artifact; the GUI plot never uses it."""
+        viewer = self._record.get("viewer")
+        if viewer and Path(viewer).is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(viewer).resolve())))
+
+    def export_html(self, destination):
+        viewer = self._record.get("viewer")
+        if not viewer or not Path(viewer).is_file():
+            raise ValueError("Export portable HTML from the workspace's converted-data action.")
+        destination = self._output_path(destination, {".html", ".htm"})
+        if destination != Path(viewer).resolve():
+            shutil.copyfile(viewer, destination)
+        return destination
+
+    def wait_for_workers(self, timeout_ms=5000):
+        self._cancel_renders()
         return self._pool.waitForDone(timeout_ms)
 
     def closeEvent(self, event):
         self._closed = True
         self._generation += 1
-        self._cancel_previews()
-        self._config_timer.stop()
-        if self.web_view:
-            self.web_view.stop()
-            # Page must be destroyed before its off-record profile.
-            self.web_view.deleteLater()
-            self.web_view = None
+        self._cancel_renders()
+        self._render_timer.stop()
+        for plot in (self.plot, self.mass_plot, self.mobility_plot):
+            plot.canvas._draw_pending = False
         super().closeEvent(event)

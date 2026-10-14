@@ -142,6 +142,9 @@ class MainWindow(QMainWindow):
         set_plot_dark(self._dark)
         for canvas in self.findChildren(PlotCanvas):
             canvas.refresh()
+        for panel in self._panels:
+            if isinstance(panel, WatersWorkspacePanel):
+                panel.viewer_widget.refresh_theme()
 
     def get_panel(self, index):
         return self._panels[index]

@@ -1,4 +1,13 @@
-# HTML viewer data flow and math
+# Waters viewer data flow and math
+
+The desktop draws native Matplotlib plots from converted TXT data, using
+NumPy/SciPy for the numerical transforms. It does not embed a browser or load
+HTML. **Process & view** prepares the tables and native plots; **Export portable
+HTML** explicitly produces the separate Plotly document for an external browser.
+
+The sections below retain the complete HTML data-flow explanation and describe
+the corresponding native calculations. Both routes use the same physical
+bin-centre and display conventions, with distinct rendering implementations.
 
 The HTML viewer turns each run into an interactive image from a 3-column IM point
 cloud. The three dimensions are m/z, drift, and intensity:
@@ -27,7 +36,24 @@ rebinning. Native bin zero is centred at 0.055 ms when the pusher period is
 - `run_ms.txt`: profile MS data, columns `m/z, intensity`
 - `run_im.txt`: IM point cloud, columns `m/z, drift_bin, intensity`
 
-`imms_plot` pairs those two files by run name and calls `plot_im_data()`.
+Native viewing reads the paired files directly. Its numerical interface is
+[`deconvovo.imms_view`](../deconvovo/imms_view.py):
+`load_view_data(im_path, ms_path=None, pusher_us=None, config=None)`, returning
+`ViewData`; `ViewData.render(config=None, viewport=None)` produces a
+`ViewSnapshot` for plotting and current-view export. Every native render derives
+from the original TXT values at their available precision, rather than from a
+previous display or an HTML payload. Range changes can widen the native view
+directly from those source data.
+The desktop loads the run once in a background worker and reuses those immutable
+arrays. A numeric range edit replaces a mouse-selected viewport; other display
+edits retain it. **Reset view** keeps current filters and returns to numeric ranges.
+
+For explicit HTML generation, `imms_plot` pairs the files by run name and calls
+`plot_im_data()`. The browser's embedded `rawIM` payload rounds m/z to four
+decimal places and intensities to integer counts. The initial Python histogram
+uses the loaded data; browser rebinning uses that serialized payload. Native and
+HTML comparisons therefore allow the HTML serialization precision instead of
+copying a history-dependent precision change into the native engine.
 
 ### Step 2: point cloud to heatmap bins
 
@@ -96,8 +122,10 @@ t_r = \widetilde d_r\frac{pusher\_us}{1000}
 $$
 
 Without pusher metadata, the viewer retains the bin-centre coordinate
-$\widetilde d_r$ in drift-bin units. Rebinning retains the fixed baked m/z
+$\widetilde d_r$ in drift-bin units. HTML rebinning retains the fixed baked m/z
 domain; zoom changes the visible interval, rather than moving that domain.
+The native renderer can rebuild its domain from the original TXT when the
+requested mass window widens. It does not require a new HTML file.
 
 ### Step 3: 2D Smooth and Scale
 
@@ -118,6 +146,19 @@ $$
 $$
 \sigma_{t,bins} = \frac{\sigma_t}{\Delta t}
 $$
+
+Here $\Delta t$ is the current displayed drift-cell width. It is the difference
+between adjacent drift centres, or twice the first centre when there is one
+display cell. For timed data:
+
+$$
+\Delta t = \frac{N_D^{\mathrm{native}}}{N_D}
+\frac{pusher\_us}{1000}
+$$
+
+Using the native pusher step after drift rebinning would give the wrong
+smoothing width. Both native and HTML routes now use the displayed cell width,
+keeping the configured physical Gaussian width stable as drift-bin count changes.
 
 `Scale` multiplies only the m/z-axis smoothing width. It changes peak shape in
 the 2D plot without stretching the axes:
@@ -141,6 +182,26 @@ $$
 
 So `Scale = 2` makes features horizontally fatter than `Scale = 1`, while
 `Scale = 0.5` makes them horizontally thinner.
+
+#### Savitzky–Golay coefficient correction
+
+For an odd window width $w$, signal length $n$, and polynomial order $k$, the smoothing coefficients
+$c_j$ evaluate the local least-squares polynomial at its centre. They preserve
+a constant signal before the nonnegative display clamp:
+
+$$
+\sum_{j=0}^{w-1} c_j = 1,
+\qquad
+\widehat y_i = \max\left(0,\sum_{j=0}^{w-1}c_j
+y_{\operatorname{clip}(i+j-h,0,n-1)}\right),
+\qquad h=\frac{w-1}{2}
+$$
+
+The former JavaScript implementation had an unused loop that repeated the
+coefficient sum $k+1$ times, introducing a gain factor $k+1$ per pass. That loop
+is removed, and the native implementation uses SciPy's correctly normalized
+Savitzky–Golay coefficients with nearest-endpoint padding. This corrects a numerical scaling defect; it does not
+change the acquired data or provide a calibration correction.
 
 ### Step 4: Intensity transform
 
@@ -316,7 +377,7 @@ $$
 The `Colormap` tab changes only the color lookup. The custom `W-` colormaps are
 listed first, followed by the remaining colormaps in natural sorted order.
 
-The `Render` tab controls Plotly's interpolation between heatmap cells:
+In exported HTML, the `Render` tab controls Plotly's interpolation between heatmap cells:
 
 - `Crisp`: no interpolation between cells
 - `Smooth (fast)`: bilinear interpolation
@@ -324,10 +385,12 @@ The `Render` tab controls Plotly's interpolation between heatmap cells:
 
 Rendering changes how pixels are drawn on screen. It does not change $H$,
 $Z$, exported CSV values, or the scientific binning.
+Native Matplotlib uses nearest-cell, bilinear or bicubic interpolation for the
+same `off`, `fast` and `best` settings.
 
 ### Step 7: marginal profiles
 
-The viewer reads the resolved heatmap ranges from Plotly's `_fullLayout`.
+The HTML viewer reads the resolved heatmap ranges from Plotly's `_fullLayout`.
 Matched axes can leave stale ranges in the editable `layout`, so those saved
 values are not used as the authority for the plotted viewport.
 
@@ -346,7 +409,9 @@ $$
 This applies only when the intersected interval has positive width. An
 entirely out-of-domain viewport selects no cells. The same floor/ceiling rule
 selects drift cells using their interval width. Both marginal plots therefore
-follow the heatmap ranges actually drawn on screen.
+follow the heatmap ranges actually drawn on screen. Native plots use shared
+Matplotlib axes and the native snapshot's viewport instead of Plotly layout
+objects; the same interval/centre conventions apply.
 
 The left drift profile is recomputed from the current visible m/z window:
 
@@ -362,14 +427,16 @@ chooses whether to show the profile as a line or peak-pick it into sticks.
 
 ### Step 8: current-view PNG and CSV
 
-The desktop's **Export current view** menu uses the same rendered Plotly traces.
-It waits for pending display changes, refreshes the linked profiles, and reads
-the resolved viewport. It does not run a separate raw-data reconstruction.
+The desktop's **Export current view** menu captures its native numerical
+snapshot and Matplotlib plots. Exported HTML has its own current-view functions
+that wait for pending display changes and read the rendered Plotly traces and
+resolved viewport. Each route captures its displayed values, rather than
+running a separate raw-data reconstruction during export.
 
 | Export | Contents |
 | --- | --- |
 | Full plot PNG | Current heatmap and both linked profiles, with the current zoom and settings. |
-| 2D PNG | Current heatmap trace, colorscale and resolved axis ranges. |
+| 2D PNG | Current heatmap, colorscale and axis ranges. |
 | m/z PNG | Current displayed mass profile or sticks and resolved axis ranges. |
 | Drift PNG | Current displayed drift profile and resolved axis ranges. |
 | 2D CSV | Visible overlapping heatmap cells, retaining their original centres and displayed values. |
@@ -394,7 +461,8 @@ positive-intensity points with
 `mz,drift_bin,intensity` and optional `drift_time_ms`. Keep that file and the
 original TXT/RAW inputs for numerical work on raw intensities. The older browser
 CSV buttons provide their named raw/processed exports; they are distinct from
-the desktop's current-view CSVs.
+the desktop's native current-view CSVs. Native **Process & view** does not create
+this point CSV or HTML automatically; they belong to explicit HTML generation.
 
 **Export portable HTML** regenerates one complete interactive document from the
 converted tables and current defaults. It includes Plotly and the run data,

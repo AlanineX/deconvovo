@@ -3,13 +3,14 @@
 Copy this complete folder to use Waters RAW conversion, the local viewer,
 single-file offline HTML, and CCS calibration independently of DeconVoVo.
 
-RAW folders → paired MS/IM tables → local viewer / portable HTML → optional CCS.
+RAW folders → paired MS/IM tables → native plots → optional CCS / separate HTML export.
 
 ## Open the GUI
 
-The v0.3.2 Windows package is awaiting final verification and publication on
-[GitHub Releases](https://github.com/AlanineX/deconvovo/releases). A compiled ZIP
-bundles Python, Qt, Plotly, and the reader: extract the whole folder and open
+Download the Windows package from
+[GitHub Releases](https://github.com/AlanineX/deconvovo/releases). Its compiled ZIP
+bundles Python, Qt, Matplotlib, NumPy/SciPy, the HTML-export assets, and the reader.
+Extract the whole folder and open
 `WatersConsole/WatersConsole.exe`, keeping `_internal` beside it.
 
 For this source toolkit, use Python 3.10+ in your environment:
@@ -24,8 +25,8 @@ natively on Windows x64; Linux/macOS RAW conversion requires compatible x64 Wine
 After installing dependencies, conversion, both viewers, and CCS run locally.
 
 1. Choose a complete `.raw` directory, a parent with acquisitions, or a converted TXT folder.
-2. Choose a writable output folder outside RAW acquisitions. For RAW sources, **Convert only** creates MS/IM tables without HTML, CCS, or reference CSVs; **Process & view** also creates viewers.
-3. Select a run, adjust display controls and the **X · m/z** / **Y · drift time (ms)** minimum/maximum fields, and inspect locally or **Open in browser**.
+2. Choose a writable output folder outside RAW acquisitions. For RAW sources, **Convert only** creates MS/IM tables without HTML, CCS, or reference CSVs; **Process & view** also opens native plots without generating HTML.
+3. Select a run, adjust display controls and the **X · m/z** / **Y · drift time (ms)** minimum/maximum fields, and inspect locally. **Reset view** restores numeric ranges while keeping current filters.
 4. **Export portable HTML** saves the selected run with current display defaults into one file containing Plotly and the data. Copy that file alone to another computer.
 5. Open **CCS review**, load/edit the two tables, and **Calibrate & apply**; or enable CCS during processing. **Advanced processing & defaults → Save defaults** keeps display choices across relaunches.
 
@@ -33,6 +34,9 @@ After installing dependencies, conversion, both viewers, and CCS run locally.
 plus CSV for the visible heatmap/MS/drift values. The heatmap CSV contains
 displayed transformed/filtered values. Portable HTML keeps current defaults,
 without saving temporary zoom changes.
+Native viewing reads the converted TXT data and uses Matplotlib with NumPy/SciPy,
+without a browser runtime. Native ranges can widen directly from those inputs.
+The separate HTML export embeds Plotly and opens in an external browser offline.
 
 **Load real demo → Protein calibrants + ADP CCS** uses three protein standards
 and two ADP acquisitions. Tune mix/Betaine is a separate two-run example. The
@@ -138,6 +142,6 @@ The converter and `txt_to_csv.py` use only Python's standard library. Scientific
 plotting/CCS uses `requirements-pipeline.txt`; use `--help` for individual options.
 
 See [GUI details](GUI_README.md), [pipeline commands](PIPELINE_README.md), and the
-complete [HTML viewer data flow and math](docs/html_viewer_data_flow_and_math.md).
+complete [viewer data flow and math](docs/html_viewer_data_flow_and_math.md).
 [Third-party reader licenses](bin/) remain included. Optional mzML/Rainbow routes
 have separate requirements and are unnecessary for the Console.

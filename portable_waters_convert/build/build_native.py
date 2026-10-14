@@ -121,10 +121,13 @@ def main() -> None:
     absent = [str(p) for p in required if not p.is_file()]
     if absent:
         raise RuntimeError("Native bundle is incomplete: " + ", ".join(absent))
-    if not any((internal / "PySide6").rglob(f"QtWebEngineProcess{suffix}")):
-        raise RuntimeError("Native bundle is missing QtWebEngineProcess")
-    if not any((internal / "PySide6").rglob("qtwebengine_resources*.pak")):
-        raise RuntimeError("Native bundle is missing the QtWebEngine resource packs")
+    browser_files = [str(p.relative_to(internal)) for p in internal.rglob("*")
+                     if "webengine" in p.name.casefold() or "chromium" in p.name.casefold()]
+    if browser_files:
+        raise RuntimeError("Native GUI must contain no Chromium/WebEngine files: " + ", ".join(browser_files))
+    widgets_module = "QtWidgets.pyd" if os.name == "nt" else "QtWidgets.abi3.so"
+    if not (internal / "PySide6" / widgets_module).is_file():
+        raise RuntimeError("Native bundle is missing its Qt Widgets renderer")
     for path in source_files:
         relative = path.relative_to(ROOT).as_posix()
         expected = information["source_sha256"].get(relative)

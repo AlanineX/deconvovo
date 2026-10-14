@@ -4,11 +4,12 @@ The selected Instrument Console design keeps the acquisition browser, measured
 plot, and display/CCS inspector visible together. Source and output paths are
 shared across processing and analysis:
 
-- **Process & view:** convert complete RAW acquisitions, inspect each run locally, and reload existing results.
+- **Process & view:** convert complete RAW acquisitions, inspect each run in native plots, and reload existing results. HTML is generated only on explicit export.
 - **Convert only:** create MS/IM tables without generating HTML, running CCS, or requiring calibrant/analyte CSVs.
 - **CCS review:** edit calibrant and analyte tables, fit and apply a calibration in one job, then inspect curves, reference mobility profiles, and analyte summaries.
 
-RAW extraction → paired MS/IM tables → offline interactive HTML → optional calibration and analyte CCS.
+RAW extraction → paired MS/IM tables → native plots → optional calibration and analyte CCS.
+Portable offline HTML is a separate export from those converted tables.
 
 ## Install and launch
 
@@ -63,7 +64,7 @@ calibration remains a separate small-molecule workflow.
 For your data, select a complete `.raw` directory, a parent containing RAW
 acquisitions, or an existing folder of paired `_ms.txt`/`_im.txt`. Nested
 condition folders are supported. Double-click a completed viewer row to open
-its HTML in your browser. **Open output folder** locates all exported artifacts.
+the run's native plots. **Open output folder** locates exported artifacts.
 
 ## Display and extraction settings
 
@@ -89,15 +90,17 @@ tabs, with separate calibration/profile/result tabs for inspection.
 
 **Reuse unchanged RAW conversions** checks extraction settings and source-file
 metadata. Changed functions, bin widths, or input files trigger fresh extraction.
-HTML always regenerates with current display settings. A failed reader run
+Native plots update from the loaded tables with current display settings.
+A failed reader run
 stops downstream work and retains previous files without marking the new job
 complete.
 
-The central **Local viewer · offline** embeds the enhanced viewer with a
-dedicated local-only browser profile. Its scientific calculations and linked
-plots are the same as the exported viewer; the inspector controls them directly.
-Remote resources are blocked. If the embedded browser is unavailable, actual
-raw MS/mobility previews and **Open in browser** remain available.
+The central viewer renders the heatmap and linked profiles with Matplotlib and
+NumPy/SciPy. It does not embed a browser or load HTML. Inspector controls update
+the native plots; widening the X/Y ranges can use the source TXT directly.
+**Reset view** restores the numeric ranges while retaining current filters.
+Mouse zoom/pan updates both linked profiles; changing a numeric range replaces
+that mouse viewport, while changing an unrelated display control retains it.
 
 **Export current view** offers full-plot, heatmap, MS-profile and drift-profile
 PNG, plus heatmap/MS/drift CSV. These exports use the current view and settings;
@@ -109,7 +112,7 @@ its data and matching Plotly JavaScript: copy that file alone and open it in a
 browser on another computer. It needs no Python, server, companion files, or
 internet connection. The full exported toolbar remains available.
 
-Both viewing routes work offline after installing the source dependencies, or
+Native viewing and separate HTML export work offline after installing the source dependencies, or
 directly from the self-contained native application. Extraction and CCS also
 run locally using the supplied reader and data.
 Exact target-window extraction remains available through `extract_mobiligram.py`.
@@ -128,9 +131,10 @@ network access disabled exercised bin controls, profile/stick mode, and linked
 heatmap zoom.
 
 Release builds run the protein-standards → ADP workflow from source and the
-frozen application, using paths containing spaces. Native gates check the offline
-viewer, current-view exports, aligned profiles, native fonts and laptop layout.
-Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/native_smoke.json),
-[build provenance](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/build_provenance.json), and an
-[actual GUI preview](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/native_console.png). These software checks do not
+frozen native application using paths containing spaces. Gates check alignment,
+all seven current-view exports, native fonts, source protection and separate
+portable offline HTML. The builder rejects Chromium/WebEngine artifacts.
+Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/native_smoke.json),
+[build provenance](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/build_provenance.json), and an
+[actual GUI preview](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/native_console.png). These software checks do not
 establish quantitative CCS accuracy. macOS native runtime remains untested.

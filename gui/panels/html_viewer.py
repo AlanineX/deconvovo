@@ -99,7 +99,7 @@ class HtmlViewerPanel(QWidget):
         defaults_w = QWidget()
         dl = QVBoxLayout(defaults_w)
         dl.setContentsMargins(8, 8, 8, 8)
-        dl_sub = QLabel("Initial viewer settings. Users can change them interactively in the HTML.")
+        dl_sub = QLabel("Display settings for the native plots and portable HTML export.")
         dl_sub.setProperty("subtitle", True)
         dl.addWidget(dl_sub)
 
@@ -200,7 +200,7 @@ class HtmlViewerPanel(QWidget):
         mz_bins = defaults.get("mz_bins", 3200)
         self.spin_mzbins.setValue(0 if str(mz_bins).lower() == "native" else int(mz_bins))
         self.spin_mzbins.setMinimumWidth(_MIN_COMBO_W)
-        self.spin_mzbins.setToolTip("Native keeps the available m/z sampling (capped at 25,600 bins). Lower counts reduce HTML size.")
+        self.spin_mzbins.setToolTip("Native keeps the available m/z sampling (capped at 25,600 bins). Lower counts reduce rendering work and HTML size.")
         form.addRow("m/z Bins:", self.spin_mzbins)
 
         self.spin_driftbins = QSpinBox()

@@ -22,7 +22,6 @@ jobs:
     timeout-minutes: 35
     env:
       QT_QPA_PLATFORM: offscreen
-      QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
       DECONVOVO_GUI: '1'
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +34,7 @@ jobs:
       - name: Install the tested Waters build dependencies
         run: python -m pip install -r portable_waters_convert/build/requirements.txt
       - name: Test conversion, viewer settings, workflow, and console
-        run: python -m pytest tests/test_waters_conversion.py tests/test_waters_viewer.py tests/test_waters_workflow.py tests/test_waters_workspace.py tests/test_waters_embedded_viewer.py tests/test_waters_alignment.py tests/test_waters_exports.py tests/test_waters_csv_formula.py -q
+        run: python -m pytest tests/test_waters_conversion.py tests/test_waters_viewer.py tests/test_waters_workflow.py tests/test_waters_workspace.py tests/test_waters_embedded_viewer.py tests/test_waters_alignment.py tests/test_waters_exports.py tests/test_waters_csv_formula.py tests/test_waters_native_viewer.py tests/test_waters_native_math.py -q
       - name: Verify source protein-to-ADP CCS and offline Windows laptop layout
         env:
           QT_QPA_PLATFORM: windows

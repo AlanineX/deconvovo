@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.3 · Native Waters Instrument Console
+
+- Replaced the desktop browser engine with native Qt/Matplotlib plots backed by NumPy/SciPy; Chromium/WebEngine is excluded from the application.
+- Separated portable offline HTML generation from ordinary native viewing.
+- Preserved all display controls, seven live PNG/CSV exports, editable sheets, path handling and complete real data.
+- Documented the native math API, serialization precision, SG normalization and physical drift smoothing widths.
+- Verified intensity labels using internal mathtext, including after CCS plotting changes global font settings.
+
 ## v0.3.2 · Waters Instrument Console
 
 - Fixed UTF-8 decoding in Windows alignment-test fixtures while retaining every assertion and native gate.

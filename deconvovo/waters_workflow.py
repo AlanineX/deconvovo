@@ -62,8 +62,6 @@ def run(
         for parent in (out_dir, *out_dir.parents)
     ):
         raise ValueError("Choose an output directory outside the RAW acquisition")
-    if not html and not calibrant_csv and not raw_dirs:
-        raise ValueError("Choose RAW conversion, viewers, or CCS analysis")
     if raw_dirs:
         stems = [p.stem for p in raw_dirs]
         if len(stems) != len({name.casefold() for name in stems}):

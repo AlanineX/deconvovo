@@ -1,15 +1,16 @@
 # DeconVoVo · Waters Instrument Console
 
 Convert complete Waters `.raw` folders, inspect IM-MS data, and fit/apply CCS in
-one local workspace. The desktop viewer and exported single-file HTML work offline.
+one local workspace. Desktop plots use native Matplotlib with NumPy/SciPy;
+portable HTML is a separate offline export using Plotly.
 
 Data flow: RAW folders → paired MS/IM tables → viewer → optional calibration → analyte CCS.
 
 ## Open the GUI
 
-The v0.3.2 Windows package is awaiting final verification and publication on
-[GitHub Releases](https://github.com/AlanineX/deconvovo/releases). For a matching
-release, extract the whole `WatersConsole-win64.zip`, keep its executable and
+Download the Windows package from
+[GitHub Releases](https://github.com/AlanineX/deconvovo/releases).
+Extract the whole `WatersConsole-win64.zip`, keep its executable and
 `_internal` folder together, and open `WatersConsole/WatersConsole.exe`.
 The compiled application needs no Python, Wine, or internet connection to run.
 
@@ -17,7 +18,7 @@ From source, use Python 3.10+ in your environment:
 
 ```bash
 python -m pip install -e ".[gui]"
-python -m gui.app
+python portable_waters_convert/run_gui.py
 ```
 
 Windows runs the bundled reader natively. Linux/macOS RAW conversion needs
@@ -27,15 +28,16 @@ compatible x64 Wine; plotting and CSV processing use Python.
 
 1. Choose a complete RAW folder, a parent with acquisitions, or a converted TXT folder.
 2. Choose a writable **Output** folder outside the RAW acquisitions. For RAW sources, **Convert only** creates MS/IM tables without HTML, CCS, or reference CSVs.
-3. Click **Process & view** for conversion and viewing, then select a run to inspect its measured plots.
+3. Click **Process & view** for conversion and native viewing, then select a run to inspect its measured plots. This step does not generate HTML.
 4. Adjust the viewer controls and the visible **X · m/z** / **Y · drift time (ms)** minimum and maximum fields. **Advanced processing & defaults → Save defaults** keeps display choices across relaunches.
-5. Use **Open in browser** for the full viewer, or **Export portable HTML** to save the selected run with current defaults. That one file includes Plotly and its data; copy it alone to another computer.
+5. Use **Reset view** to restore the numeric plot ranges while keeping current filters. **Export portable HTML** explicitly generates a separate interactive file with current defaults, Plotly and the run data; copy that file alone to another computer.
 6. For CCS, open **CCS review**, load/edit the calibrant and analyte tables, then click **Calibrate & apply**. Alternatively, enable **Include CCS when processing** before starting the batch.
 
 **Export current view** saves the visible full plot, heatmap, MS profile, or drift
 profile as PNG; its CSV choices save the visible heatmap, MS, or drift values.
 The 2D CSV contains displayed values after transforms/filters, rather than raw
-point intensities. **Export portable HTML** regenerates an interactive document
+point intensities. Native axis ranges can widen directly from the loaded TXT
+data; HTML generation is unnecessary for viewing. **Export portable HTML** generates an interactive document
 with current defaults; it does not capture temporary zoom changes.
 
 **Load real demo → Protein calibrants + ADP CCS** selects three protein standards
@@ -50,7 +52,7 @@ fit the free two-parameter curve; this implementation needs at least three valid
 reference peaks. Use the protein standards for the ADP example.
 
 For the **Betaine acquisition's** high-mass detail, load **Betaine · 1000–2000 m/z
-detail** or regenerate its viewer using the
+detail** with the
 [focused configuration](demo_data/production/small_molecule/betaine_1000_2000_viewer_config.json).
 This visual-only view uses 1000–2000 and 4–12 ms; its high-mass features are
 unassigned, and the Betaine ion near 118 lies outside the focus. Protein → ADP
@@ -148,6 +150,7 @@ keep the original RAW data. The existing batch CLI is `python -m deconvovo.cli`;
 optional UniDec deconvolution remains available through `.[deconv]`.
 
 The [portable toolkit](portable_waters_convert/README.md) runs independently.
-The complete [HTML viewer data flow and math](docs/html_viewer_data_flow_and_math.md)
-explains binning, smoothing, intensity transforms, cutoff/fade, and linked profiles.
+The complete [viewer data flow and math](docs/html_viewer_data_flow_and_math.md)
+explains native and HTML binning, smoothing, intensity transforms, cutoff/fade,
+and linked profiles.
 [Reader licenses](portable_waters_convert/bin/) retain the third-party terms.

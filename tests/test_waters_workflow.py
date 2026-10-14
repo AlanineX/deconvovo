@@ -150,6 +150,23 @@ def test_existing_converted_pairs_refresh_viewer_and_report_progress(tmp_path, m
     assert events[-1] == (2, 2, "Workflow complete")
 
 
+def test_converted_pairs_are_ready_for_native_view_without_html_or_ccs(tmp_path, monkeypatch):
+    source = tmp_path / "converted"
+    source.mkdir()
+    ms, im = source / "sample_ms.txt", source / "sample_im.txt"
+    ms.write_text("500 10\n", encoding="utf-8")
+    im.write_text("500 1 10\n", encoding="utf-8")
+    original = ms.read_bytes(), im.read_bytes()
+    monkeypatch.setattr(imms_plot, "run", lambda *a, **k: pytest.fail("Native viewing generated HTML"))
+    monkeypatch.setattr(imms_ccs_calibrate, "run", lambda *a, **k: pytest.fail("Native viewing invoked CCS"))
+    result = waters_workflow.run(source, tmp_path / "out", convert=False, html=False)
+    assert result["status"] == "complete"
+    assert result["viewers"] == [] and result["ccs_dir"] is None
+    assert result["converted_dir"] == str(source)
+    assert (ms.read_bytes(), im.read_bytes()) == original
+    assert not list((tmp_path / "out").glob("*.html"))
+
+
 def test_viewer_error_is_not_reported_as_complete(tmp_path, monkeypatch):
     source = tmp_path / "converted"
     source.mkdir()

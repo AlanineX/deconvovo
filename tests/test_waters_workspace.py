@@ -173,16 +173,14 @@ def test_converted_processing_is_one_background_job_and_locks_inputs(panel, tmp_
     def fake_run(source_path, output_path, **kwargs):
         captured.append((source_path, output_path, kwargs))
         assert kwargs["convert"] is False
-        assert kwargs["html"] is True
+        assert kwargs["html"] is False
         assert kwargs["skip_existing"] is True
-        assert json.loads(kwargs["config_path"].read_text(encoding="utf-8"))["defaults"]
+        assert kwargs["config_path"] is None
         started.set()
         release.wait(2.0)
         output_path.mkdir()
-        viewer = output_path / "sample_2d_imms.html"
-        viewer.write_text("<html>offline</html>", encoding="utf-8")
-        kwargs["progress"](1, 1, "Viewer ready: sample")
-        return {"converted_dir": str(source_path), "viewers": [str(viewer)], "runs": [], "status": "complete"}
+        kwargs["progress"](1, 1, "Workflow complete")
+        return {"converted_dir": str(source_path), "viewers": [], "runs": [], "status": "complete"}
     monkeypatch.setattr(workflow, "run", fake_run)
     panel.process_and_view()
     try:
@@ -201,9 +199,10 @@ def test_converted_processing_is_one_background_job_and_locks_inputs(panel, tmp_
     assert panel.btn_ccs.isEnabled()
     assert panel.sources_group.isEnabled()
     assert panel.job_progress.value() == 1
-    assert "1 offline viewers" in panel.job_status.text()
+    assert "1 MS/IM pairs ready for native viewing" in panel.job_status.text()
     assert panel.btn_viewer.isEnabled()
-    assert not captured[0][2]["config_path"].exists()
+    assert captured[0][2]["config_path"] is None
+    assert not list(out.glob("*.html"))
 
 
 def test_ccs_snapshots_table_edits_and_resolves_raw_paths_without_rewriting_source(panel, tmp_path, monkeypatch):
@@ -283,7 +282,7 @@ def test_error_restores_controls_and_exposes_completed_results(panel, tmp_path, 
     assert panel._job_files is None
 
 
-def test_viewer_opens_local_file_url(panel, tmp_path, monkeypatch):
+def test_viewer_reset_stays_inside_native_gui(panel, tmp_path, monkeypatch):
     from gui.panels import waters_workspace
     source = _pairs(tmp_path / "converted")
     output = tmp_path / "output"
@@ -294,8 +293,12 @@ def test_viewer_opens_local_file_url(panel, tmp_path, monkeypatch):
     panel.pick_out.set_path(str(output))
     opened = []
     monkeypatch.setattr(waters_workspace.QDesktopServices, "openUrl", lambda url: opened.append(url.toLocalFile()))
+    resets = []
+    monkeypatch.setattr(panel.viewer_widget, "reset_view", lambda: resets.append(True))
     panel.open_viewer()
-    assert [Path(path).resolve() for path in opened] == [viewer.resolve()]
+    assert resets == [True]
+    assert not opened
+    assert panel.btn_viewer.text() == "Reset view"
 
 
 def test_low_quality_fit_is_explicitly_marked_for_review(panel):

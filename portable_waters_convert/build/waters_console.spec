@@ -23,10 +23,9 @@ a = Analysis(
     datas=datas,
     hiddenimports=[
         "gui.app", "gui.widgets.waters_viewer", "waters_convert",
-        "deconvovo.waters_workflow", "deconvovo.imms_ccs_calibrate",
+        "deconvovo.waters_workflow", "deconvovo.imms_ccs_calibrate", "deconvovo.imms_view",
         "deconvovo.imms_plot", "deconvovo.imms_html",
-        "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineCore",
-        "PySide6.QtWebChannel", "plotly.offline",
+        "plotly.offline",
     ],
     hookspath=[],
     hooksconfig={"matplotlib": {"backends": ["Agg", "QtAgg"]}},
@@ -36,6 +35,8 @@ a = Analysis(
         # This is a Widgets application: retain linked Qt C++ libraries, but
         # avoid unused QML imports/plugins pulled in by these Python wrappers.
         "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuickWidgets",
+        "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick",
+        "PySide6.QtWebChannel",
         "torch", "torchvision", "torchaudio", "nvidia", "triton",
         "tensorflow", "onnxruntime", "numba", "llvmlite", "unidec", "pyarrow", "polars",
         "duckdb", "altair", "kaleido", "sqlalchemy", "statsmodels",

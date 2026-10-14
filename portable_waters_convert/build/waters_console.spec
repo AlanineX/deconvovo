@@ -33,6 +33,9 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "PyQt5", "PyQt6", "PySide2", "tkinter", "pytest", "IPython",
+        # This is a Widgets application: retain linked Qt C++ libraries, but
+        # avoid unused QML imports/plugins pulled in by these Python wrappers.
+        "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuickWidgets",
         "torch", "torchvision", "torchaudio", "nvidia", "triton",
         "tensorflow", "onnxruntime", "numba", "llvmlite", "unidec", "pyarrow", "polars",
         "duckdb", "altair", "kaleido", "sqlalchemy", "statsmodels",
@@ -40,6 +43,10 @@ a = Analysis(
     ],
     noarchive=False,
 )
+# Release Qt uses the normal resource packs; debug builds have separate packs.
+a.datas = [entry for entry in a.datas
+           if not (entry[0].replace("\\", "/").startswith(("PySide6/Qt/resources/", "PySide6/resources/"))
+                   and entry[0].endswith((".debug.pak", ".debug.bin")))]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, [],

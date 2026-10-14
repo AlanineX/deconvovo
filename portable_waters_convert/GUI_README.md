@@ -130,7 +130,7 @@ heatmap zoom.
 Release builds run the protein-standards → ADP workflow from source and the
 frozen application, using paths containing spaces. Native gates check the offline
 viewer, current-view exports, aligned profiles, native fonts and laptop layout.
-Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.1/native_smoke.json),
-[build provenance](https://github.com/AlanineX/deconvovo/releases/download/v0.3.1/build_provenance.json), and an
-[actual GUI preview](https://github.com/AlanineX/deconvovo/releases/download/v0.3.1/native_console.png). These software checks do not
+Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/native_smoke.json),
+[build provenance](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/build_provenance.json), and an
+[actual GUI preview](https://github.com/AlanineX/deconvovo/releases/download/v0.3.2/native_console.png). These software checks do not
 establish quantitative CCS accuracy. macOS native runtime remains untested.

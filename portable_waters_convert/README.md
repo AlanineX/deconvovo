@@ -7,7 +7,7 @@ RAW folders → paired MS/IM tables → local viewer / portable HTML → optiona
 
 ## Open the GUI
 
-The v0.3.1 Windows package is awaiting final verification and publication on
+The v0.3.2 Windows package is awaiting final verification and publication on
 [GitHub Releases](https://github.com/AlanineX/deconvovo/releases). A compiled ZIP
 bundles Python, Qt, Plotly, and the reader: extract the whole folder and open
 `WatersConsole/WatersConsole.exe`, keeping `_internal` beside it.

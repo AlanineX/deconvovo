@@ -35,4 +35,4 @@ jobs:
             release-validation/native validation with spaces/native_smoke.json
             release-validation/native validation with spaces/native_console.png
           fail_on_unmatched_files: true
-          body_path: RELEASE_NOTES_v0.3.1.md
+          body_path: RELEASE_NOTES_v0.3.2.md

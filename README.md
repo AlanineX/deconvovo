@@ -7,7 +7,7 @@ Data flow: RAW folders → paired MS/IM tables → viewer → optional calibrati
 
 ## Open the GUI
 
-The v0.3.1 Windows package is awaiting final verification and publication on
+The v0.3.2 Windows package is awaiting final verification and publication on
 [GitHub Releases](https://github.com/AlanineX/deconvovo/releases). For a matching
 release, extract the whole `WatersConsole-win64.zip`, keep its executable and
 `_internal` folder together, and open `WatersConsole/WatersConsole.exe`.

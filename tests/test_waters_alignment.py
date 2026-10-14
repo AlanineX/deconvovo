@@ -21,7 +21,7 @@ from deconvovo.imms_html import plot_im_data
 @pytest.fixture(params=[None, 100.0])
 def viewer(tmp_path: Path, request):
     app = QApplication.instance() or QApplication([])
-    cfg = json.loads((Path(__file__).parents[1] / "config/imms_plot_config.json").read_text())
+    cfg = json.loads((Path(__file__).parents[1] / "config/imms_plot_config.json").read_text(encoding="utf-8"))
     cfg["defaults"].update({"mz_bins": 2, "smooth_2d": {"method": "raw"}, "smooth_drift": {"method": "raw"}, "noise_2d": 0, "denoise": "off"})
     cfg["initial_view"] = {"mz_range": [1000, 2000], "drift_range": [0, 0.3] if request.param else [0, 3]}
     config = tmp_path / "config.json"
@@ -31,7 +31,7 @@ def viewer(tmp_path: Path, request):
     np.savetxt(im, [[1000, 0, 10], [1500, 1, 20], [2000, 2, 30]])
     np.savetxt(ms, [[1000, 10], [1500, 20], [2000, 30]])
     plot_im_data(im, ms, "sample", tmp_path, config_path=config, pusher_us=request.param)
-    content = (tmp_path / "sample_2d_imms.html").read_text()
+    content = (tmp_path / "sample_2d_imms.html").read_text(encoding="utf-8")
     bootstrap = "var H=" + re.search(r"\nvar H=(.*?)\nvar figData=", content, re.S).group(1)
     engine = QJSEngine()
     value = engine.evaluate("var document={getElementById:function(id){return {value:id==='nbins'?'2':'native'}}};function applyAll(){};" + bootstrap)

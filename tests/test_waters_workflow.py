@@ -43,6 +43,25 @@ def test_reader_failure_stops_before_any_downstream_step(tmp_path, monkeypatch):
     assert not (out / "waters_workflow.json").exists()
 
 
+def test_plotting_progress_works_with_windows_legacy_console_encoding(tmp_path, monkeypatch):
+    import io
+    import sys
+
+    source = tmp_path / "converted"
+    source.mkdir()
+    (source / "sample_ms.txt").write_text("500 10\n")
+    (source / "sample_im.txt").write_text("500 1 10\n")
+    monkeypatch.setattr(imms_plot, "find_pusher_for_run", lambda *args: 110.0)
+    monkeypatch.setattr(imms_plot, "_plot_one_run", lambda args: {"run_name": "sample", "status": ["IM"]})
+    buffer = io.BytesIO()
+    console = io.TextIOWrapper(buffer, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", console)
+    result = imms_plot.run(source, tmp_path / "html", n_workers=1)
+    console.flush()
+    assert result[0]["status"] == ["IM"]
+    assert "Pusher: 110.00 us" in buffer.getvalue().decode("cp1252")
+
+
 def test_parent_batch_processes_direct_and_nested_acquisitions(tmp_path, monkeypatch):
     source = tmp_path / "batch"
     (source / "direct.raw").mkdir(parents=True)

@@ -5,7 +5,8 @@
 - Replaced the desktop's separate step pages with the selected design 01 workbench: run list, measured plots, shared settings and an optional activity log.
 - Merged conversion and viewing into **Process & view**; calibration and analyte application share the same paths and method. Background work keeps the console responsive and locks affected inputs while a job runs.
 - Added a local enhanced viewer and **Export portable HTML**. Both include local Plotly assets and work offline; export preserves the chosen settings.
-- Preserved saved viewer defaults, exposed the enhanced controls, and refreshed HTML when processing so older output cannot mask changed settings.
+- Preserved saved viewer defaults, exposed the enhanced controls and **Advanced → Save defaults**, and refreshed HTML when processing so older output cannot mask changed settings.
+- Kept terminal progress compatible with standard Windows text encoding, including per-run pusher timing.
 - Added nine complete real RAW acquisitions across protein/ADP, tune-mix/Betaine and native HSP104 workflows, with original bytes and portable configuration.
 - Added a pinned Waters-only Windows build, byte verification for all demo files, and source/frozen smoke checks for real conversion, offline rendering and laptop layout.
 - Conversion errors fail the workflow instead of reporting successful empty results. Existing conversion, CCS and optional UniDec command-line interfaces remain available.

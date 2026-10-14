@@ -208,7 +208,7 @@ def main() -> None:
         for rn, pp in pusher_cache.items():
             by_period[f"{pp:.2f}"].append(rn)
         for period, runs in sorted(by_period.items()):
-            print(f"Pusher: {period} μs/bin — {runs[0]}" +
+            print(f"Pusher: {period} us/bin - {runs[0]}" +
                   (f" (+{len(runs)-1} more)" if len(runs) > 1 else ""))
     print()
 

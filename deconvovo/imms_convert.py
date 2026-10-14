@@ -35,7 +35,7 @@ def run(input_dir: Path, output_dir: Path, n_workers: int = 4) -> Path:
 
     work_dir = wc.setup_work_dir(output_dir)
 
-    print(f"  {len(raw_dirs)} .raw dirs → {output_dir}")
+    print(f"  {len(raw_dirs)} .raw dirs -> {output_dir}")
 
     items = [{"raw_dir": str(rd), "out_dir": str(output_dir), "work_dir": str(work_dir)}
              for rd in raw_dirs]

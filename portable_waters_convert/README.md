@@ -15,7 +15,7 @@ python run_gui.py
 
 Select a real demo or your RAW folder, choose a writable output folder, and click **Process & view**. Select a processed run to inspect it locally, open its offline HTML, or export one portable HTML file. The three demo profiles supply the appropriate viewer settings and optional CCS tables. [Nine complete real acquisitions](examples/production/README.md) contain 300.29 MiB of original RAW data.
 
-The chosen Instrument Console keeps the run list, plots and controls together. CCS calibration and analyte application share paths and method settings. Both the embedded desktop viewer and exported HTML use bundled plotting assets and run without internet access.
+The chosen Instrument Console keeps the run list, plots and controls together. CCS calibration and analyte application share paths and method settings. Both the embedded desktop viewer and exported HTML use bundled plotting assets and run without internet access. **Advanced → Save defaults** keeps viewer settings across relaunches.
 
 ## Converter alone
 

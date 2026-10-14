@@ -37,7 +37,7 @@ def run(input_dir: Path, output_dir: Path, n_workers: int = 4,
     work_dir = wc.find_cdcreader().parent
     wc.find_support_dlls(work_dir)
 
-    print(f"  {len(raw_dirs)} .raw dirs → {output_dir}")
+    print(f"  {len(raw_dirs)} .raw dirs -> {output_dir}")
 
     items = [{"raw_dir": str(rd), "out_dir": str(output_dir), "work_dir": str(work_dir),
               "skip_existing": skip_existing}

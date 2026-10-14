@@ -432,7 +432,10 @@ class WatersWorkspacePanel(QWidget):
                 label.hide()
         for button in self._settings_group.findChildren(QPushButton):
             if button.text() == "Save Config":
-                button.hide()
+                button.setText("Save defaults")
+                button.clicked.disconnect()
+                button.clicked.connect(self._save_defaults)
+                self.btn_save_defaults = button
         self.advanced.hide()
         self.btn_advanced.toggled.connect(self._toggle_advanced)
         column.addWidget(self.advanced)
@@ -495,6 +498,10 @@ class WatersWorkspacePanel(QWidget):
     def show_ccs_review(self, index=0):
         self.tabs.setCurrentIndex(1)
         self.ccs_editors.setCurrentIndex(index)
+
+    def _save_defaults(self):
+        if self.viewer_panel._save_config():
+            self._log.log("Defaults saved.", "success")
 
     def _update_ccs_cards(self, *_):
         self.btn_review_cal.setText(f"Calibrants\n{self.calibration_panel.table.table.rowCount()} references\nReview →")

@@ -427,3 +427,53 @@ def test_export_resolves_aliases_before_checking_source_protection(panel, tmp_pa
     assert (source / 'sample_ms.txt').read_text(encoding="utf-8") == '100 1\n'
     assert panel._worker is None
     assert not panel.is_busy
+
+
+def test_saved_defaults_survive_relaunch_without_changing_demo_or_unknown_fields(tmp_path, monkeypatch):
+    from gui.panels import html_viewer
+    from gui.panels.waters_workspace import _demo_manifest
+    manifest_path = _demo_manifest()
+    if manifest_path is None:
+        pytest.skip('Real demo settings are absent in this checkout')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    profile = next(p for p in manifest['profiles'] if p['id'] == manifest['default_profile'])
+    demo_config = manifest_path.parent / profile['viewer_config']
+    before_demo = demo_config.read_bytes()
+    config = json.loads(before_demo)
+    config['future_settings'] = {'keep': True}
+    config['defaults']['future_control'] = 'preserve me'
+    user_config = tmp_path / 'user_defaults.json'
+    user_config.write_text(json.dumps(config), encoding='utf-8')
+    monkeypatch.setattr(html_viewer, '_config_path', lambda: user_config)
+    app = QApplication.instance() or QApplication([])
+    first = WatersWorkspacePanel(LogPanel())
+    second = None
+    try:
+        first.btn_advanced.setChecked(True)
+        assert not first.btn_save_defaults.isHidden()
+        assert first.btn_save_defaults.text() == 'Save defaults'
+        first.viewer_panel.spin_mzbins.setValue(7600)
+        first.viewer_panel.spin_noise2d.setValue(1.25)
+        first.viewer_panel.combo_ms_mode.setCurrentIndex(first.viewer_panel.combo_ms_mode.findData('stick'))
+        first.btn_save_defaults.click()
+        assert 'Defaults saved.' in first._log.text.toPlainText()
+        persisted = json.loads(user_config.read_text(encoding='utf-8'))
+        assert persisted['defaults']['mz_bins'] == 7600
+        assert persisted['defaults']['noise_2d'] == 1.25
+        assert persisted['future_settings'] == {'keep': True}
+        assert persisted['defaults']['future_control'] == 'preserve me'
+        first.close()
+        app.processEvents()
+        second = WatersWorkspacePanel(LogPanel())
+        assert second.viewer_panel.spin_mzbins.value() == 7600
+        assert second.viewer_panel.spin_noise2d.value() == 1.25
+        assert second.viewer_panel.combo_ms_mode.currentData() == 'stick'
+        assert second.viewer_panel.current_config()['future_settings'] == {'keep': True}
+        assert second.viewer_panel.current_config()['defaults']['future_control'] == 'preserve me'
+        assert demo_config.read_bytes() == before_demo
+    finally:
+        for widget in (first, second):
+            if widget is not None:
+                widget.close()
+                widget.deleteLater()
+        app.processEvents()

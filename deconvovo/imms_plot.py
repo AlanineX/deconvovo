@@ -86,7 +86,7 @@ def run(inputs, out_dir: Path, skip_existing: bool = False,
         for rn, pp in pusher_cache.items():
             by_period[f"{pp:.2f}"].append(rn)
         for period, runs in sorted(by_period.items()):
-            print(f"  Pusher: {period} μs — {runs[0]}" +
+            print(f"  Pusher: {period} us - {runs[0]}" +
                   (f" (+{len(runs)-1} more)" if len(runs) > 1 else ""))
 
     run_args = []

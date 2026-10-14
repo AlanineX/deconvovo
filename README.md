@@ -22,7 +22,7 @@ Python, Wine, UniDec, and internet access are unnecessary for the Windows applic
 
 Both routes include the enhanced mass/drift bin controls, profile/stick display, smoothing, cutoff and fade, colormaps, intensity scaling, and linked profiles. The local mass profile and mobiligram also read the measured TXT data. HTML works in a modern browser without a server or internet access.
 
-Existing converted tables can be reused; viewer settings are saved without discarding defaults that the desktop does not edit. Processing refreshes HTML so an old viewer cannot silently hide current settings. An error opens the activity log and prevents a failed job from being reported as complete.
+Existing converted tables can be reused; viewer settings are saved without discarding defaults that the desktop does not edit. Processing refreshes HTML so an old viewer cannot silently hide current settings. Use **Advanced → Save defaults** to keep display choices across relaunches. An error opens the activity log and prevents a failed job from being reported as complete.
 
 Data flow: **Waters RAW folder → MS/IM tables → desktop viewer or portable HTML → optional calibration and analyte CCS**.
 

@@ -13,6 +13,8 @@ The desktop follows the **Instrument Console (design 01)**: a dark workbench wit
 
 Python, Wine, UniDec, and internet access are unnecessary for the Windows application. Keep the executable and its `_internal` folder together. Downloads and source dependency installation need a connection; conversion and both viewing routes run locally afterward.
 
+![Verified native Windows Instrument Console](https://github.com/AlanineX/deconvovo/releases/download/v0.3.0/native_console.png)
+
 ## View locally or share a portable HTML
 
 | Route | How to use it | What travels with it |
@@ -57,7 +59,7 @@ The standalone [portable Waters folder](portable_waters_convert/README.md) can b
 
 ## Build and validation
 
-The [Windows build workflow](.github/workflows/build-windows.yml) uses [pinned dependencies](portable_waters_convert/build/requirements.txt), runs the focused Waters tests, and verifies all 148 original demo files. Before and after freezing, it converts the two tune-mix/Betaine acquisitions, fits six CCS references, applies the curve to one analyte, and checks all ten calibration/analyte PNGs. It also checks offline HTML, the embedded viewer, usable native fonts, and the plot at a 1280 × 800 laptop size. Build and validation reports are retained as workflow artifacts. The all-nine conversion record in the demo guide documents Linux/Wine execution; this Windows gate covers the two-run small-molecule workflow.
+The [Windows build workflow](.github/workflows/build-windows.yml) uses [pinned dependencies](portable_waters_convert/build/requirements.txt), runs the focused Waters tests, and verifies all 148 original demo files. Before and after freezing, it converts the two tune-mix/Betaine acquisitions, fits six CCS references, applies the curve to one analyte, and checks all ten calibration/analyte PNGs. It also checks offline HTML, the embedded viewer, usable native fonts, and the plot at a 1280 × 800 laptop size. Build and validation reports are retained as workflow artifacts. The source and frozen Windows application passed the two-run checks, including the 1280 × 800 console and both offline viewing routes. The all-nine conversion record in the demo guide remains Linux/Wine evidence. [Native Windows validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.0/native_smoke.json) and [build provenance](https://github.com/AlanineX/deconvovo/releases/download/v0.3.0/build_provenance.json) accompany the release as permanent assets.
 
 ```bash
 python -m pip install -r portable_waters_convert/build/requirements.txt

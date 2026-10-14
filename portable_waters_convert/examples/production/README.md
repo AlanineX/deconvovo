@@ -25,7 +25,9 @@ The Betaine viewer was also checked in Chrome with network access disabled, incl
 
 ## Recorded execution and calibration limits
 
-All nine acquisitions converted at their original mass resolution and produced enhanced HTML viewers with Plotly embedded. Each viewer includes mass and drift bin controls, profile/stick display, cutoff fade, smoothing and intensity scaling. The software check ran on Linux through Wine; it is not a recorded Windows execution check. [validation.json](validation.json) records the run counts, output sizes and checks.
+All nine acquisitions converted at their original mass resolution and produced enhanced HTML viewers with Plotly embedded. Each viewer includes mass and drift bin controls, profile/stick display, cutoff fade, smoothing and intensity scaling. That nine-run check ran on Linux through Wine; [validation.json](validation.json) retains its run counts, output sizes and checks.
+
+The updated source and frozen Windows Console also passed with the two complete tune-mix/Betaine RAW acquisitions: six calibrant peaks, one finite analyte CCS result, ten PNG outputs, and both offline viewing routes. The native console fitted a 1280 × 800 display, and the build verified all nine bundled acquisitions against 148 original file hashes. See [Windows native evidence](https://github.com/AlanineX/deconvovo/releases/download/v0.3.0/native_smoke.json). These checks establish software execution; the scientific calibration limits below still apply.
 
 | Calibration demo | Accepted software peak rows | Reported log-fit score | Reference peak drift interval | Application limit |
 | --- | ---: | ---: | --- | --- |

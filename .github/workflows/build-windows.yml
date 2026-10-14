@@ -23,7 +23,16 @@ jobs:
         with:
           name: WatersConsole-win64
           path: release-artifact
+      - uses: actions/download-artifact@v4
+        with:
+          name: WatersConsole-win64-validation
+          path: release-validation
       - uses: softprops/action-gh-release@v2
         with:
-          files: release-artifact/WatersConsole-win64.zip
+          files: |
+            release-artifact/WatersConsole-win64.zip
+            release-validation/build_provenance.json
+            release-validation/validation/native_smoke.json
+            release-validation/validation/native_console.png
+          fail_on_unmatched_files: true
           body_path: RELEASE_NOTES_v0.3.0.md

@@ -1,6 +1,8 @@
 """Embedded matplotlib canvas for Qt panels."""
 from __future__ import annotations
 
+import math
+
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
@@ -17,6 +19,18 @@ def set_plot_dark(dark: bool):
     _dark_mode = dark
 
 
+class _PixelAlignedCanvas(FigureCanvasQTAgg):
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Agg truncates float dimensions: 255 / dpi * dpi may be 254.999…
+        # Keep the backing buffer large enough to repaint the complete Qt edge.
+        if self.figure is not None:
+            self.figure.set_size_inches(
+                math.nextafter(event.size().width() * self.device_pixel_ratio / self.figure.dpi, math.inf),
+                math.nextafter(event.size().height() * self.device_pixel_ratio / self.figure.dpi, math.inf),
+                forward=False)
+
+
 class PlotCanvas(QWidget):
     """Embeddable matplotlib figure. Follows app dark/light mode."""
 
@@ -25,7 +39,7 @@ class PlotCanvas(QWidget):
         self.fig = Figure(figsize=figsize, constrained_layout=True)
         self.axes = self.fig.subplots(nrows, ncols, squeeze=False)
         self._apply_theme()
-        self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas = _PixelAlignedCanvas(self.fig)
         # draw_idle schedules a Qt callback. Parent deletion can destroy the
         # canvas first; cancel that pending draw before its callback reaches a
         # deleted QWidget. Matplotlib checks this flag before using Qt methods.

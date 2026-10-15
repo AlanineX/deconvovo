@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import logging
 import html
-import re
 from datetime import datetime
 
 from PySide6.QtWidgets import QTextEdit, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QLabel
 from PySide6.QtCore import Signal, QObject
+from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 
 from gui.theme import _DARK, _LIGHT
 
@@ -55,12 +55,33 @@ class LogPanel(QWidget):
         self._colors = _DARK if dark else _LIGHT
         roles = ("text_dim", "success", "warning", "error", "accent")
         replacements = {palette[role]: self._colors[role] for palette in (_DARK, _LIGHT) for role in roles}
-        bar = self.text.verticalScrollBar()
-        position, at_end = bar.value(), bar.value() == bar.maximum()
-        content = re.sub('|'.join(map(re.escape, replacements)),
-                         lambda match: replacements[match.group()], self.text.toHtml())
-        self.text.setHtml(content)
-        bar.setValue(bar.maximum() if at_end else position)
+        vertical, horizontal = self.text.verticalScrollBar(), self.text.horizontalScrollBar()
+        position, side = vertical.value(), horizontal.value()
+        at_end = position == vertical.maximum()
+        # Change native text formats only; paths and message text stay exact.
+        changes = []
+        block = self.text.document().begin()
+        while block.isValid():
+            fragments = block.begin()
+            while not fragments.atEnd():
+                fragment = fragments.fragment()
+                if fragment.isValid():
+                    color = fragment.charFormat().foreground().color().name()
+                    if color in replacements:
+                        changes.append((fragment.position(), fragment.length(), replacements[color]))
+                fragments += 1
+            block = block.next()
+        cursor = QTextCursor(self.text.document())
+        cursor.beginEditBlock()
+        for start, length, color in changes:
+            cursor.setPosition(start)
+            cursor.setPosition(start + length, QTextCursor.KeepAnchor)
+            style = QTextCharFormat()
+            style.setForeground(QColor(color))
+            cursor.mergeCharFormat(style)
+        cursor.endEditBlock()
+        vertical.setValue(vertical.maximum() if at_end else position)
+        horizontal.setValue(side)
 
     def _append(self, msg, level):
         role = {"info": "text_dim", "success": "success", "warning": "warning",

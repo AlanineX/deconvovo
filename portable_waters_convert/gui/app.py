@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         QApplication.instance().setStyleSheet(stylesheet(dark=self._dark))
         self.btn_theme.setText("Light mode" if self._dark else "Dark mode")
         refresh_console_style(self, self._dark)
+        self.log_panel.refresh_theme(self._dark)
         from gui.widgets.plot_canvas import PlotCanvas, set_plot_dark
         set_plot_dark(self._dark)
         for canvas in self.findChildren(PlotCanvas):

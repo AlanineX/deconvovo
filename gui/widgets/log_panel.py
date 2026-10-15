@@ -3,15 +3,13 @@ from __future__ import annotations
 
 import logging
 import html
+import re
 from datetime import datetime
 
 from PySide6.QtWidgets import QTextEdit, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QLabel
 from PySide6.QtCore import Signal, QObject
 
-from gui.theme import SUCCESS, WARNING, ERROR, TEXT_DIM, TEXT, ACCENT
-
-_COLORS = {"info": TEXT_DIM, "success": SUCCESS, "warning": WARNING,
-            "error": ERROR, "accent": ACCENT}
+from gui.theme import _DARK, _LIGHT
 
 
 class _Sig(QObject):
@@ -21,13 +19,14 @@ class _Sig(QObject):
 class LogPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._colors = _DARK
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
 
         header = QHBoxLayout()
         lbl = QLabel("Log")
-        lbl.setStyleSheet(f"font-weight: bold; color: {TEXT}; font-size: 9pt;")
+        lbl.setStyleSheet("font-weight: bold; font-size: 9pt;")
         header.addWidget(lbl)
         header.addStretch()
         btn = QPushButton("Clear Log")
@@ -52,10 +51,23 @@ class LogPanel(QWidget):
     def log(self, msg, level="info"):
         self._sig.message.emit(msg, level)
 
+    def refresh_theme(self, dark):
+        self._colors = _DARK if dark else _LIGHT
+        roles = ("text_dim", "success", "warning", "error", "accent")
+        replacements = {palette[role]: self._colors[role] for palette in (_DARK, _LIGHT) for role in roles}
+        bar = self.text.verticalScrollBar()
+        position, at_end = bar.value(), bar.value() == bar.maximum()
+        content = re.sub('|'.join(map(re.escape, replacements)),
+                         lambda match: replacements[match.group()], self.text.toHtml())
+        self.text.setHtml(content)
+        bar.setValue(bar.maximum() if at_end else position)
+
     def _append(self, msg, level):
-        c = _COLORS.get(level, TEXT_DIM)
+        role = {"info": "text_dim", "success": "success", "warning": "warning",
+                "error": "error", "accent": "accent"}.get(level, "text_dim")
+        c = self._colors[role]
         ts = datetime.now().strftime("%H:%M:%S")
-        self.text.append(f'<span style="color:{TEXT_DIM}">{ts}</span> '
+        self.text.append(f'<span style="color:{self._colors["text_dim"]}">{ts}</span> '
                          f'<span style="color:{c}">{html.escape(str(msg))}</span>')
         self.text.verticalScrollBar().setValue(self.text.verticalScrollBar().maximum())
 

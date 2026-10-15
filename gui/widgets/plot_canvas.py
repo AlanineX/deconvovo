@@ -6,6 +6,7 @@ import math
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from gui.theme import mpl_rc
@@ -38,8 +39,8 @@ class PlotCanvas(QWidget):
         super().__init__(parent)
         self.fig = Figure(figsize=figsize, constrained_layout=True)
         self.axes = self.fig.subplots(nrows, ncols, squeeze=False)
-        self._apply_theme()
         self.canvas = _PixelAlignedCanvas(self.fig)
+        self._apply_theme()
         # draw_idle schedules a Qt callback. Parent deletion can destroy the
         # canvas first; cancel that pending draw before its callback reaches a
         # deleted QWidget. Matplotlib checks this flag before using Qt methods.
@@ -52,6 +53,7 @@ class PlotCanvas(QWidget):
     def _apply_theme(self):
         rc = mpl_rc(dark=_dark_mode)
         self.fig.set_facecolor(rc["figure.facecolor"])
+        self.canvas.setPalette(QPalette(QColor(rc["figure.facecolor"])))
         for row in self.axes:
             for ax in row:
                 ax.set_facecolor(rc["axes.facecolor"])

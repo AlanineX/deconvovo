@@ -2,8 +2,9 @@
 
 The desktop draws native Matplotlib plots from converted TXT data, using
 NumPy/SciPy for the numerical transforms. It does not embed a browser or load
-HTML. **Process & view** prepares the tables and native plots; **Export portable
-HTML** explicitly produces the separate Plotly document for an external browser.
+HTML. **Input/Output → Process files** prepares the tables and native plots,
+reusing validated unchanged conversions. **Export portable HTML** produces the
+separate Plotly document for an external browser.
 
 The sections below retain the complete HTML data-flow explanation and describe
 the corresponding native calculations. Both routes use the same physical
@@ -36,6 +37,13 @@ rebinning. Native bin zero is centred at 0.055 ms when the pusher period is
 - `run_ms.txt`: profile MS data, columns `m/z, intensity`
 - `run_im.txt`: IM point cloud, columns `m/z, drift_bin, intensity`
 
+The wide **Input/Output** rows and **Process files** discover the selected RAW input.
+**CPU** limits independent reader processes, each writing an isolated staged
+pair; display calculations still use one selected acquisition. HTML and optional
+CCS stages run sequentially after all requested pairs succeed. A reader failure
+cancels queued work and stops downstream stages; failed refresh caches remain
+invalid even if earlier output files survive.
+
 Native viewing reads the paired files directly. Its numerical interface is
 [`deconvovo.imms_view`](../deconvovo/imms_view.py):
 `load_view_data(im_path, ms_path=None, pusher_us=None, config=None)`, returning
@@ -43,17 +51,30 @@ Native viewing reads the paired files directly. Its numerical interface is
 `ViewSnapshot` for plotting and current-view export. Every native render derives
 from the original TXT values at their available precision, rather than from a
 previous display or an HTML payload. Range changes can widen the native view
-directly from those source data.
+directly from those source data. Without a configured mass window, the full
+mass domain spans all original MS/IM coordinates, including zero-only outer
+endpoints; an explicit starting window still clips it normally.
 The desktop loads the run once in a background worker and reuses those immutable
 arrays. A numeric range edit replaces a mouse-selected viewport; other display
-edits retain it. **Reset view** keeps current filters and returns to numeric ranges.
+edits retain it. **Home/Reset view** retains current filters and restores full original mass
+coordinates (including zero endpoints) and the acquired physical drift extent.
+
+Native hover reports m/z, drift coordinates and the processed heatmap cell
+value $Z_{out}[r,c]$ in the toolbar. Wheel zoom needs no mode selection.
+**Zoom** selects a dragged rectangle; **Pan** moves the view. Gestures on a
+marginal change its physical coordinate rather than directly zooming intensity.
+Linked projections recompute after drag release; wheel changes are debounced.
+**Back/Forward** restore earlier physical bounds; **Home/Reset** restore the
+full acquired ranges while retaining display filters.
 
 For explicit HTML generation, `imms_plot` pairs the files by run name and calls
-`plot_im_data()`. The browser's embedded `rawIM` payload rounds m/z to four
-decimal places and intensities to integer counts. The initial Python histogram
-uses the loaded data; browser rebinning uses that serialized payload. Native and
-HTML comparisons therefore allow the HTML serialization precision instead of
-copying a history-dependent precision change into the native engine.
+`plot_im_data()`. The embedded `rawIM` payload preserves the available floating-
+point m/z coordinates and intensities; it does not round them to four decimal
+places or integer counts. The embedded profile axis also retains acquired
+zero-intensity sample coordinates from the MS and IM tables. Initial Python
+histograms and browser rebinning use the same input precision. Native and HTML
+sums can differ by floating-point accumulation order, without a reduced profile
+coordinate axis or serialization rounding.
 
 ### Step 2: point cloud to heatmap bins
 
@@ -63,11 +84,16 @@ $$
 H[r, c]
 $$
 
-$r$ is a drift row and $c$ is an m/z column. If `initial_view.mz_range` is set,
-the initial heatmap spends its m/z bins only on that starting range. For the
-Carter config this is 350-1250 m/z.
+$r$ is a drift row and $c$ is an m/z column. Normally `initial_view.mz_range`
+sets the heatmap's starting mass domain. For a very narrow Gaussian-smoothed
+window, the internal processing domain expands to include real surrounding data
+needed by the physical kernel. Its width also accounts for the finest original
+mass spacing, subject to the available acquisition extent. The
+visible limits remain exact; this changes only 2D convolution, without widening
+1D selections, adding profile samples or disabling filters.
 
-For $N_m$ m/z bins over $[m_{min},m_{max}]$, the m/z bin width is:
+Here $[m_{min},m_{max}]$ denotes those internal processing bounds, which may
+extend beyond the visible interval. For $N_m$ m/z bins, the cell width is:
 
 $$
 \Delta m = \frac{m_{max} - m_{min}}{N_m}
@@ -96,7 +122,7 @@ $$
 H[r, c] = \sum_{i: d_i = r,\ c_i = c} I_i
 $$
 
-Concrete example: if `[350, 1250]` is shown with `6400` m/z bins, then:
+Concrete example: if processing bounds are `[350, 1250]` with `6400` m/z bins:
 
 $$
 \Delta m = \frac{1250 - 350}{6400} = 0.140625\ \mathrm{Da/bin}
@@ -122,10 +148,11 @@ t_r = \widetilde d_r\frac{pusher\_us}{1000}
 $$
 
 Without pusher metadata, the viewer retains the bin-centre coordinate
-$\widetilde d_r$ in drift-bin units. HTML rebinning retains the fixed baked m/z
-domain; zoom changes the visible interval, rather than moving that domain.
-The native renderer can rebuild its domain from the original TXT when the
-requested mass window widens. It does not require a new HTML file.
+$\widetilde d_r$ in drift-bin units. HTML rebinning derives its processing
+context from the fixed requested mass bounds and current bin/Gaussian settings;
+mouse zoom changes visible limits without changing that context. The native
+renderer can rebuild its domain from original TXT when the requested window
+widens. It does not require a new HTML file.
 
 ### Step 3: 2D Smooth and Scale
 
@@ -392,42 +419,128 @@ same `off`, `fast` and `best` settings.
 
 The HTML viewer reads the resolved heatmap ranges from Plotly's `_fullLayout`.
 Matched axes can leave stale ranges in the editable `layout`, so those saved
-values are not used as the authority for the plotted viewport.
+values are not used as the authority for the plotted viewport. Native plots use
+shared Matplotlib axes and the native snapshot's viewport.
 
-Visible cells are selected by their edges. A partially visible cell still
-contributes to the projection. After intersecting the displayed m/z interval
-$[x_{lo},x_{hi}]$ with the baked domain, the column bounds are:
+Both 1D profiles project original IM points, independently of the 2D histogram's
+mass and drift bin counts. Shipped defaults use raw drift smoothing and zero
+1D noise thresholds; explicit settings can enable processing. The drift axis
+keeps every original drift bin,
+including trailing zero-intensity bins. Its native coordinates are $t_d$ as
+defined above, or $d+0.5$ without pusher timing. For the visible m/z interval:
 
 $$
-c_{lo} = \max\left(0,
-\left\lfloor\frac{x_{lo}-m_{min}}{\Delta m}\right\rfloor\right),
+D[d] = \sum_{i:\,x_{lo}\leq m_i\leq x_{hi},\,d_i=d} I_i
+$$
+
+`Drift Noise` thresholds this full native profile and `Drift Smooth` smooths its
+intensities while retaining its original coordinates. There is no additional
+drift point limit or rebinning caused by either 2D display-bin control.
+
+Drift-only zoom crops the native curve and rescales its intensity axis; sparse
+views mark existing samples without resampling or changing exported sample values.
+Changing the extraction mass window recomputes the drift profile; selected targets
+retain their explicit mass bounds. The heatmap's Gaussian smoothing and
+cube-root/other intensity transforms affect only its 2D appearance.
+
+The bottom m/z profile uses the acquired coordinate axis. Let $x_j$ be the sorted
+unique union of all m/z coordinates in the paired MS and IM tables, including
+zero-intensity samples. The MS table contributes coordinates and gaps; its
+intensities do not replace the drift-linked IM sums. Let $B_{vis}$ contain the
+original drift bins whose cell edges overlap the current drift viewport. At each
+original coordinate:
+
+$$
+M_j = \sum_{i:\,m_i=x_j,\,d_i\in B_{vis}} I_i
+$$
+
+Here $N_d$ is the original drift-bin count and $\Delta t$ is the native pusher
+period in milliseconds, or one bin without timing. The selected bin bounds are:
+
+$$
+k_{lo}=\max\left(0,\left\lfloor\frac{t_{lo}}{\Delta t}\right\rfloor\right),
 \qquad
-c_{hi} = \min\left(N_m-1,
-\left\lceil\frac{x_{hi}-m_{min}}{\Delta m}\right\rceil-1\right)
+k_{hi}=\min\left(N_d-1,\left\lceil\frac{t_{hi}}{\Delta t}\right\rceil-1\right)
 $$
 
-This applies only when the intersected interval has positive width. An
-entirely out-of-domain viewport selects no cells. The same floor/ceiling rule
-selects drift cells using their interval width. Both marginal plots therefore
-follow the heatmap ranges actually drawn on screen. Native plots use shared
-Matplotlib axes and the native snapshot's viewport instead of Plotly layout
-objects; the same interval/centre conventions apply.
+These bounds apply to a positive-width intersection with the original drift
+domain; otherwise no bins contribute. Repeated IM points at the same coordinate
+sum; coordinates with no selected signal remain zero. Native viewing caches the
+full-drift projection; both viewers recompute selected-drift sums on the same
+coordinate axis. The trace retains $x_{lo}\leq x_j\leq x_{hi}$ within the heatmap
+domain, inclusively; equality after domain clipping retains an exact acquired
+endpoint. An entirely out-of-domain mass interval produces an empty trace.
+No interpolated points, adaptive grid, minimum spacing or hidden point budget is
+used in the mass profile.
 
-The left drift profile is recomputed from the current visible m/z window:
+`m/z Noise` thresholds the visible profile as a percentage of its maximum.
+There is no additional m/z-profile smoothing. Profile mode retains every
+original sample, including zero gaps. Stick mode selects local maxima above 1%
+of the visible maximum that are highest within $[x_j-0.08,\,x_j+0.08]$ Th;
+stick positions remain original coordinates. Endpoints are excluded, and a flat
+peak uses its middle sample, rounded down. Native Matplotlib and exported
+Plotly lines disable path simplification, preserving all trace vertices. A
+single original mass sample uses a point marker; no neighboring samples are
+invented to draw a line.
+
+### Target m/z → drift profile and focused view
+
+A target's mass interval is an explicit extraction input, separate from CCS
+reference sheets. Selecting a target now focuses the 2D axes to that interval
+and its auto/manual drift bounds.
+`ViewData.extract_drift_profile(mz_range, config=None)` selects original native
+TXT points by an inclusive m/z interval, before mass-axis histogramming:
 
 $$
-D[r] = \sum_{c=c_{lo}}^{c_{hi}} H[r,c]
+R[d] = \sum_{i:\,m_{lo}\leq m_i\leq m_{hi},\,d_i=d} I_i
 $$
 
-Then `Drift Noise` thresholds that 1D profile and `Drift Smooth` smooths it.
+It retains the same original native drift-bin coordinates regardless of 2D
+binning. Only drift noise and drift smoothing apply to $R$. The 2D Gaussian
+settings, intensity transform, cutoff/fade and mass-profile noise do not enter
+this extraction. A selected **Targets** row drives both the drift panel beside
+the heatmap and the **Mobiligram** tab. Its exact mass bounds rebuild the native
+heatmap domain from the cached original TXT points; no RAW conversion is needed.
+Both linked profiles then follow the focused physical viewport. **Full view**
+deselects the target and restores the acquisition axes. **Home/Reset view** clears
+preset bounds and mouse zoom to restore the complete original acquisition while
+retaining display filters.
 
-The bottom m/z profile is rebuilt from the raw per-drift IM point lists inside
-the current visible drift window. `m/z Noise` thresholds that profile. `MS Mode`
-chooses whether to show the profile as a line or peak-pick it into sticks.
+Auto drift bounds fill every valid target row on data load/import and mass-bound
+edits, without selecting or focusing that row. Manual bounds remain unchanged.
+**Auto drift** determines focus from every positive original raw drift sample
+inside the target's inclusive mass bounds. Detection disables drift noise and
+smoothing, so visual settings cannot trim the detected support. If the first
+and last positive native sample centres are $a$ and $b$, equal padding is applied
+at both ends before clipping to the acquired physical extent $[0,T_{max}]$:
+
+$$
+p=0.2\max(|a|,|b|),\qquad
+ t_{min}=\max(0,a-p),\qquad t_{max}=\min(T_{max},b+p)
+$$
+
+Thus a 5–11 ms support gives 2.8–13.2 ms before acquisition clipping. With no
+positive target signal, Auto uses the full acquired drift extent. Manual
+`drift_min`/`drift_max` values are used unchanged. These bounds select the view;
+the extracted profile still retains all original drift sample coordinates.
+For $N_d$ original bins and native width $\Delta t$, the acquired extent is:
+
+$$
+T_{max}=N_d\Delta t
+$$
+
+For example, ADP EDDA has 200 bins at 69 µs, so its full drift extent is 13.8 ms.
+Target-sheet **Export CSV** stores these inputs and any computed results;
+current-view profile CSV exports the displayed sample trace within the view.
+
+**Export → Drift PNG/CSV** captures the selected profile within the current drift
+viewport; its filename contains the target name. The exported intensities and
+coordinates are the extracted, drift-processed values. Molecular mass, charge,
+reference CCS and analyte/calibrant sheets are unnecessary for profiling.
 
 ### Step 8: current-view PNG and CSV
 
-The desktop's **Export current view** menu captures its native numerical
+The desktop's **Export** menu captures its native numerical
 snapshot and Matplotlib plots. Exported HTML has its own current-view functions
 that wait for pending display changes and read the rendered Plotly traces and
 resolved viewport. Each route captures its displayed values, rather than
@@ -443,6 +556,22 @@ running a separate raw-data reconstruction during export.
 | m/z CSV | Displayed mass-profile/stick vertices inside the current mass range. |
 | Drift CSV | Displayed drift-profile vertices inside the current drift range. |
 
+For 2D CSV, visible cells are selected by their edges; a partly visible cell
+retains its full value. After intersecting the visible m/z interval with the
+heatmap domain, the column bounds are:
+
+$$
+c_{lo} = \max\left(0,
+\left\lfloor\frac{x_{lo}-m_{min}}{\Delta m}\right\rfloor\right),
+\qquad
+c_{hi} = \min\left(N_m-1,
+\left\lceil\frac{x_{hi}-m_{min}}{\Delta m}\right\rceil-1\right)
+$$
+
+This selects cells only for a positive-width intersection. The same rule
+selects 2D drift cells using their displayed cell width. These export cell bounds
+do not rebin either 1D profile.
+
 The heatmap CSV header is `mz,drift_time_ms,display_value,intensity_transform`
 when pusher metadata is available; otherwise it uses `drift_bin` for the second
 column. Its `display_value` is $Z_{out}[r,c]$: it includes current smoothing,
@@ -451,17 +580,22 @@ intensity $I_i$ or unprocessed heatmap sum $H[r,c]$.
 
 Profile CSV headers are `mz,display_value` and
 `drift_time_ms,display_value` (or `drift_bin,display_value` without timing).
-They retain the profile's own noise/smoothing/display-mode settings. Blank rows
-retain the breaks between sticks. A partially visible heatmap cell is exported
-with its full displayed value and original centre; the export does not split or
+They retain the profile's own noise/smoothing/display-mode settings. The profile
+CSVs contain the actual displayed trace coordinates and values, without export
+resampling or a point limit. Blank rows retain the breaks between sticks.
+A partially visible heatmap cell is exported with its full displayed value and original centre; the export does not split or
 apportion that cell's intensity.
 
 The generated `run_2d_imms.csv` is a separate export of the original
 positive-intensity points with
 `mz,drift_bin,intensity` and optional `drift_time_ms`. Keep that file and the
 original TXT/RAW inputs for numerical work on raw intensities. The older browser
-CSV buttons provide their named raw/processed exports; they are distinct from
-the desktop's native current-view CSVs. Native **Process & view** does not create
+CSV buttons provide their named raw/processed exports. Their full-domain drift
+exports also retain original bin centres and precision, without the former
+0.02-ms resampling. The legacy raw MS CSV also preserves original precision
+and includes only acquired points within its chosen mass interval. They are
+distinct from
+the desktop's native current-view CSVs. Native RAW opening does not create
 this point CSV or HTML automatically; they belong to explicit HTML generation.
 
 **Export portable HTML** regenerates one complete interactive document from the

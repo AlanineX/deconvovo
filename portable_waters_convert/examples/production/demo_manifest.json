@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "title": "Real Waters production demos",
+  "title": "Waters examples",
   "default_profile": "protein_adp",
   "path_base": "manifest_directory",
   "raw_path_base": "csv_directory",
   "profiles": [
     {
       "id": "protein_adp",
-      "name": "Protein calibrants + ADP CCS (5 real runs)",
+      "name": "Protein standards + ADP",
       "source": "protein_adp/raw",
       "viewer_config": "protein_adp/viewer_config.json",
       "calibrant_csv": "protein_adp/calibrants.csv",
@@ -34,7 +34,7 @@
     },
     {
       "id": "small_molecule",
-      "name": "Tune mix + Betaine (2 real runs)",
+      "name": "Tune mix + Betaine",
       "source": "small_molecule/raw",
       "viewer_config": "small_molecule/viewer_config.json",
       "calibrant_csv": "small_molecule/calibrants.csv",
@@ -61,9 +61,9 @@
     },
     {
       "id": "betaine_1000_2000",
-      "name": "Betaine · 1000–2000 m/z detail",
-      "source": "small_molecule/raw/20260320_BETAINE_V2.raw",
-      "viewer_config": "small_molecule/betaine_1000_2000_viewer_config.json",
+      "name": "Betaine",
+      "source": "small_molecule/raw/betaine.raw",
+      "viewer_config": "small_molecule/detail_view.json",
       "description": "A display-only preset for the existing complete Betaine acquisition, focusing on measured but chemically unassigned features at 1000–2000 m/z and 4–12 ms. This choice adds no acquisitions and provides no CCS calibration.",
       "bundled": true,
       "ccs_scope": "viewer_only",
@@ -74,10 +74,10 @@
   "acquisitions": [
     {
       "id": "20260216_UBQ_DEN_NEW_V1",
-      "raw_path": "protein_adp/raw/20260216_UBQ_DEN_NEW_V1.raw",
+      "raw_path": "protein_adp/raw/ubiquitin.raw",
       "profile": "protein_adp",
       "role": "calibrant",
-      "source_dataset": "Protein standards and ADP batch",
+      "source_dataset": "Protein standards and ADP",
       "source_kind": "complete_real_Waters_RAW_directory",
       "nominal_date_from_run_name": "20260216",
       "header": {
@@ -175,10 +175,10 @@
     },
     {
       "id": "20260216_CYTC_DEN_NEW_V1",
-      "raw_path": "protein_adp/raw/20260216_CYTC_DEN_NEW_V1.raw",
+      "raw_path": "protein_adp/raw/cytochrome_c.raw",
       "profile": "protein_adp",
       "role": "calibrant",
-      "source_dataset": "Protein standards and ADP batch",
+      "source_dataset": "Protein standards and ADP",
       "source_kind": "complete_real_Waters_RAW_directory",
       "nominal_date_from_run_name": "20260216",
       "header": {
@@ -276,10 +276,10 @@
     },
     {
       "id": "20260216_MYO_DEN_NEW_V1",
-      "raw_path": "protein_adp/raw/20260216_MYO_DEN_NEW_V1.raw",
+      "raw_path": "protein_adp/raw/myoglobin.raw",
       "profile": "protein_adp",
       "role": "calibrant",
-      "source_dataset": "Protein standards and ADP batch",
+      "source_dataset": "Protein standards and ADP",
       "source_kind": "complete_real_Waters_RAW_directory",
       "nominal_date_from_run_name": "20260216",
       "header": {
@@ -377,10 +377,10 @@
     },
     {
       "id": "20260212_200UM_ADP_1M_EDDA_PH6_0",
-      "raw_path": "protein_adp/raw/20260212_200UM_ADP_1M_EDDA_PH6_0.raw",
+      "raw_path": "protein_adp/raw/adp_edda.raw",
       "profile": "protein_adp",
       "role": "analyte",
-      "source_dataset": "Protein standards and ADP batch",
+      "source_dataset": "Protein standards and ADP",
       "source_kind": "complete_real_Waters_RAW_directory",
       "nominal_date_from_run_name": "20260212",
       "header": {
@@ -478,10 +478,10 @@
     },
     {
       "id": "20260212_200UM_ADP_200MM_AMAC",
-      "raw_path": "protein_adp/raw/20260212_200UM_ADP_200MM_AMAC.raw",
+      "raw_path": "protein_adp/raw/adp_amac.raw",
       "profile": "protein_adp",
       "role": "analyte",
-      "source_dataset": "Protein standards and ADP batch",
+      "source_dataset": "Protein standards and ADP",
       "source_kind": "complete_real_Waters_RAW_directory",
       "nominal_date_from_run_name": "20260212",
       "header": {
@@ -579,7 +579,7 @@
     },
     {
       "id": "20260320_AGILENT_TUNE_MIX_V2",
-      "raw_path": "small_molecule/raw/20260320_AGILENT_TUNE_MIX_V2.raw",
+      "raw_path": "small_molecule/raw/tune_mix.raw",
       "profile": "small_molecule",
       "role": "calibrant",
       "source_dataset": "Tune-mix and Betaine batch",
@@ -700,7 +700,7 @@
     },
     {
       "id": "20260320_BETAINE_V2",
-      "raw_path": "small_molecule/raw/20260320_BETAINE_V2.raw",
+      "raw_path": "small_molecule/raw/betaine.raw",
       "profile": "small_molecule",
       "role": "analyte",
       "source_dataset": "Tune-mix and Betaine batch",
@@ -830,7 +830,7 @@
   },
   "coverage_notes": [
     "All RAW folders were copied complete, with per-file SHA256 checks against originals; no synthetic, subsetted, or truncated acquisition is included.",
-    "The filename prefixes are nominal dates. Some original protein/ADP headers report dates in 2009; those metadata are preserved and do not establish the filename chronology.",
+    "Demo folder names are simplified for readability. Original acquired names and dates remain unchanged in each RAW header and in the recorded provenance; some protein/ADP headers report dates in 2009.",
     "Protein and ADP acquisitions share major TWIMS settings but use different pusher periods. Each acquisition retains its own metadata.",
     "Reference CCS values and target assignments are inherited from existing project CSVs. No new independent reference measurements or chemical identity validation are provided.",
     "The default CCS example uses the three protein standards to calibrate the two ADP acquisitions. Betaine is an independent analyte/reference check; one Betaine reference cannot establish a multi-parameter calibration curve.",

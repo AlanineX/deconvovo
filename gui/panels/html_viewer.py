@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton, QProgressBar, QCheckBox, QSpinBox, QComboBox,
     QDoubleSpinBox, QTextEdit, QTabWidget, QFormLayout, QScrollArea, QFileDialog,
 )
-from PySide6.QtCore import Qt, QUrl, QStandardPaths
+from PySide6.QtCore import Qt, QUrl, QStandardPaths, QLocale
 from PySide6.QtGui import QFont, QDesktopServices
 
 from gui.widgets.file_picker import DirPicker
@@ -19,6 +19,47 @@ from gui.widgets.log_panel import LogPanel
 from gui.widgets.worker import Worker
 
 _MIN_COMBO_W = 200
+
+
+class AxisRangeSpinBox(QDoubleSpinBox):
+    """Show compact viewport bounds without rounding their stored values."""
+
+    def __init__(self, parent=None):
+        self._display_decimals = 1
+        self._text_edited = False
+        super().__init__(parent)
+        self.setDecimals(12)
+        self.setKeyboardTracking(False)
+        self.lineEdit().textEdited.connect(self._remember_precision)
+        self.editingFinished.connect(self._finish_edit)
+
+    def _remember_precision(self, text):
+        self._text_edited = True
+        fraction = text.partition(self.locale().decimalPoint())[2]
+        self._display_decimals = min(self.decimals(), max(1, len(fraction)))
+
+    def _finish_edit(self):
+        self._text_edited = False
+
+    def textFromValue(self, value):
+        locale = self.locale()
+        if not self.isGroupSeparatorShown():
+            locale.setNumberOptions(locale.numberOptions() | QLocale.OmitGroupSeparator)
+        return locale.toString(value, "f", self._display_decimals)
+
+    def valueFromText(self, text):
+        # Return on an unchanged, shortened cell must not round the plot bound.
+        if not self._text_edited and text == self.textFromValue(self.value()):
+            return self.value()
+        return super().valueFromText(text)
+
+    def set_view_value(self, value):
+        """Display mouse/config bounds at one decimal, keeping full precision."""
+        self._display_decimals = 1
+        self._text_edited = False
+        self.setValue(value)
+        # Refresh even when the numeric bound did not change.
+        self.lineEdit().setText(self.textFromValue(self.value()))
 
 
 def _config_path():
@@ -251,10 +292,10 @@ class HtmlViewerPanel(QWidget):
         initial = self._cfg.get("initial_view", {}) or {}
         self.chk_mz_range = QCheckBox("Set initial m/z window")
         self.chk_drift_range = QCheckBox("Set initial drift window")
-        self.spin_mz_min = QDoubleSpinBox()
-        self.spin_mz_max = QDoubleSpinBox()
-        self.spin_drift_min = QDoubleSpinBox()
-        self.spin_drift_max = QDoubleSpinBox()
+        self.spin_mz_min = AxisRangeSpinBox()
+        self.spin_mz_max = AxisRangeSpinBox()
+        self.spin_drift_min = AxisRangeSpinBox()
+        self.spin_drift_max = AxisRangeSpinBox()
         for check, lo, hi, key, fallback in [
             (self.chk_mz_range, self.spin_mz_min, self.spin_mz_max, "mz_range", (0, 10000)),
             (self.chk_drift_range, self.spin_drift_min, self.spin_drift_max, "drift_range", (0, 100)),
@@ -264,8 +305,7 @@ class HtmlViewerPanel(QWidget):
             check.setChecked(enabled)
             for spin, value in zip((lo, hi), bounds):
                 spin.setRange(0, 1000000)
-                spin.setDecimals(4)
-                spin.setValue(float(value))
+                spin.set_view_value(float(value))
                 spin.setEnabled(enabled)
                 check.toggled.connect(spin.setEnabled)
             row = QHBoxLayout()
@@ -480,8 +520,8 @@ class HtmlViewerPanel(QWidget):
             (self.chk_drift_range, self.spin_drift_min, self.spin_drift_max, "drift_range", (0, 100)),
         ]:
             bounds = initial.get(key) or fallback
-            lo.setValue(float(bounds[0]))
-            hi.setValue(float(bounds[1]))
+            lo.set_view_value(float(bounds[0]))
+            hi.set_view_value(float(bounds[1]))
             check.setChecked(bool(initial.get(key)))
         self.presets_editor.setPlainText(json.dumps(presets, indent=2, ensure_ascii=False))
 

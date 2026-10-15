@@ -158,34 +158,19 @@
     "small_molecule_pipeline_completed": true,
     "resolved_beside_source_csv": true
   },
-  "browser_check": {
-    "browser": "Chrome",
-    "network_mode": "offline",
-    "run_id": "20260320_BETAINE_V2",
-    "plotly_version": "3.4.0",
-    "traces": 3,
-    "mass_bins": 3200,
-    "drift_bins": 142,
-    "drift_axis_units": "milliseconds",
-    "profile_to_sticks_switch": "passed",
-    "heatmap_zoom_updates_linked_marginals": "passed",
-    "page_errors": 0,
-    "screenshot": "preview/betaine_offline_viewer.png"
-  },
   "raw_file_count": 106,
   "retained_demo_selection_date": "2026-10-14",
   "betaine_high_mz_preview": {
     "date": "2026-10-14",
-    "scope": "Current offline rendering check from the retained real Betaine conversion; no new RAW conversion or CCS calculation was performed for this preview.",
-    "browser": "Chrome",
+    "scope": "Native offline rendering from the existing real Betaine TXT pair; all acquired profile coordinates are retained.",
     "network_mode": "offline",
-    "run_id": "20260320_BETAINE_V2",
-    "pusher_period_us": 110,
-    "viewer_config": "small_molecule/betaine_1000_2000_viewer_config.json",
+    "run_id": "betaine",
+    "pusher_period_us": 110.0,
+    "viewer_config": "small_molecule/detail_view.json",
     "viewer_config_sha256": "9c7978b38b13c287d86ced0211ffa31d1dbe4a06803489d330dd6d51c5c795b8",
-    "renderer_source_sha256": "4c3c67da96c70372ddd2e51d9247c71dfb12706498cca38664cc2ac725256f39",
-    "screenshot": "preview/betaine_1000_2000_offline_viewer.png",
-    "screenshot_sha256": "915965c9622977dedf42b5fa945e221fa624e16d783ccbe8115de0c5657adec2",
+    "renderer_source_sha256": "91d0df6e4e512da1d8ee397220f9db4e2db1ec7dc473d757cd210fb5837a35d8",
+    "screenshot": "preview/betaine_detail.png",
+    "screenshot_sha256": "2d1d5891267ca0779cd31e46af57fb76a54c10391ee8d1dcee3e4392c8e8b2f7",
     "initial_render_verification": {
       "heatmap_x": [
         1000,
@@ -206,14 +191,18 @@
       "drift_bin_first": 0.055,
       "heatmap_bin_first": 0.055,
       "m_z_alignment_pixel_errors": [
-        0,
-        0,
-        0
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
       ],
       "drift_alignment_pixel_errors": [
-        0,
-        0,
-        0
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
       ],
       "display_config": {
         "z_scale": "cbrt",
@@ -232,8 +221,134 @@
         "render": "fast",
         "msmode": "profile"
       },
-      "requests": []
+      "requests": [],
+      "native_mz_points": 39881,
+      "native_drift_points": 143,
+      "heatmap_drift_bins": 143
     },
-    "feature_identities": "unassigned"
+    "feature_identities": "unassigned",
+    "renderer": "Native Qt/Matplotlib",
+    "source_acquisition": "betaine.raw",
+    "engine_source_sha256": "e7cadf309eb1e033851716e2b130106b2bb93e7db0ffd2102fa591874054c77c",
+    "screenshot_dimensions": [
+      1190,
+      680
+    ],
+    "mz_range": [
+      1000.0,
+      2000.0
+    ],
+    "drift_range": [
+      4.0,
+      12.0
+    ],
+    "heatmap_shape": [
+      143,
+      6400
+    ],
+    "profiles": {
+      "mz": {
+        "points": 39881,
+        "render_vertices": 39881,
+        "path_simplification": false
+      },
+      "drift": {
+        "points": 143,
+        "render_vertices": 143,
+        "path_simplification": false
+      }
+    },
+    "physical_axis_alignment_errors_px": {
+      "mz": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "drift": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "drift_profile_step_ms": 0.11000000000000001
+  },
+  "historical_browser_check": {
+    "browser": "Chrome",
+    "network_mode": "offline",
+    "run_id": "20260320_BETAINE_V2",
+    "plotly_version": "3.4.0",
+    "traces": 3,
+    "mass_bins": 3200,
+    "drift_bins": 142,
+    "drift_axis_units": "milliseconds",
+    "profile_to_sticks_switch": "passed",
+    "heatmap_zoom_updates_linked_marginals": "passed",
+    "page_errors": 0,
+    "screenshot": "preview/betaine.png",
+    "screenshot_superseded_by_native_preview": true,
+    "original_screenshot_sha256": "9e04359e7ad15900cabf839ee89b7e56143eca467c26678066eebf40f0df101f"
+  },
+  "betaine_preview": {
+    "date": "2026-10-14",
+    "scope": "Native offline preview from the existing real Betaine TXT pair; all acquired profile coordinates are retained.",
+    "network_mode": "offline",
+    "renderer": "Native Qt/Matplotlib",
+    "source_acquisition": "betaine.raw",
+    "viewer_config": "small_molecule/viewer_config.json",
+    "viewer_config_sha256": "26fe8a4d15ffccff84a60604d5b624391518d76961d1e11e78a37b52cf4218fe",
+    "renderer_source_sha256": "91d0df6e4e512da1d8ee397220f9db4e2db1ec7dc473d757cd210fb5837a35d8",
+    "engine_source_sha256": "e7cadf309eb1e033851716e2b130106b2bb93e7db0ffd2102fa591874054c77c",
+    "screenshot": "preview/betaine.png",
+    "screenshot_sha256": "fcf5ea7718f32c1111ece08f15bb59746ba7958207ccf329cc35f3aebd087897",
+    "screenshot_dimensions": [
+      1190,
+      680
+    ],
+    "mz_range": [
+      100.0,
+      2200.0
+    ],
+    "drift_range": [
+      0.0,
+      15.73
+    ],
+    "heatmap_shape": [
+      143,
+      3200
+    ],
+    "profiles": {
+      "mz": {
+        "points": 93644,
+        "render_vertices": 93644,
+        "path_simplification": false
+      },
+      "drift": {
+        "points": 143,
+        "render_vertices": 143,
+        "path_simplification": false
+      }
+    },
+    "physical_axis_alignment_errors_px": {
+      "mz": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "drift": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "drift_profile_step_ms": 0.11000000000000001,
+    "pusher_period_us": 110.0
   }
 }

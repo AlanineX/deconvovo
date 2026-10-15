@@ -1,5 +1,5 @@
 {
-  "_comment": "Display settings for the separately supplied, large myoglobin condition batch.",
+  "_comment": "General viewer display settings.",
   "defaults": {
     "smooth_2d": {
       "method": "gaussian",
@@ -8,8 +8,7 @@
     },
     "scale": "sqrt",
     "smooth_drift": {
-      "method": "gaussian",
-      "sigma": 1
+      "method": "raw"
     },
     "noise_2d": 15,
     "denoise": 50,
@@ -27,10 +26,7 @@
       350,
       1250
     ],
-    "drift_range": [
-      0,
-      15
-    ]
+    "drift_range": null
   },
   "presets": {
     "smooth_2d": [

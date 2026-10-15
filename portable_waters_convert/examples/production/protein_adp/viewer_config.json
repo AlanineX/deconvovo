@@ -681,9 +681,6 @@
       100,
       2000
     ],
-    "drift_range": [
-      0,
-      22
-    ]
+    "drift_range": null
   }
 }

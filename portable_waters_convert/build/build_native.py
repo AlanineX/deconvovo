@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import runpy
 import subprocess
 import sys
 
@@ -82,7 +83,7 @@ def main() -> None:
         *ROOT.glob("*.py"), *ROOT.glob("requirements*.txt"),
         *ROOT.glob("deconvovo/**/*.py"), *ROOT.glob("gui/**/*.py"),
         *ROOT.glob("config/*"), *ROOT.glob("bin/*"),
-        ROOT / "README.md", *ROOT.glob("docs/*.md"),
+        ROOT / "README.md", ROOT / "GUI_README.md", *ROOT.glob("docs/*.md"),
         *(ROOT / "examples" / "production").rglob("*.json"),
         *(ROOT / "examples" / "production").rglob("*.csv"),
         *ROOT.glob("build/*.py"), *ROOT.glob("build/*.spec"),
@@ -90,6 +91,8 @@ def main() -> None:
     })
     information = {
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source_commit": os.environ.get("GITHUB_SHA"),
+        "application_version": runpy.run_path(str(ROOT / "gui" / "__init__.py"))["__version__"],
         "platform": platform.platform(), "python": sys.version,
         "dependencies": {name: importlib.metadata.version(name) for name in
                          ("PyInstaller", "pyinstaller-hooks-contrib", "PySide6", "plotly",
@@ -133,7 +136,7 @@ def main() -> None:
         expected = information["source_sha256"].get(relative)
         if expected is not None and sha256(path) != expected:
             raise RuntimeError(f"Source changed while building: {relative}; build again")
-        if (relative == "README.md" or relative.startswith(("bin/", "config/", "docs/", "examples/production/"))) and sha256(internal / relative) != expected:
+        if (relative in ("README.md", "GUI_README.md") or relative.startswith(("bin/", "config/", "docs/", "examples/production/"))) and sha256(internal / relative) != expected:
             raise RuntimeError(f"Frozen asset changed during collection: {relative}")
     if verify_demos(internal) != information["demos"]:
         raise RuntimeError("Frozen production demos do not match the source corpus")

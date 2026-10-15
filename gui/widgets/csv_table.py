@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QHBoxLayout,
     QWidget, QPushButton, QFileDialog, QHeaderView, QLabel,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSignalBlocker
 from PySide6.QtGui import QFontMetrics
 
 from gui.theme import TEXT_DIM
@@ -23,9 +23,15 @@ FIELD_HELP = {
     "mw": "Molecular mass in Da; used for mass correction and automatic extraction width.",
     "z": "Positive integer charge state.",
     "mz": "Target mass-to-charge ratio; centre of the extraction window.",
-    "ccs": "Calibrant reference collision cross-section in Å².",
+    "mz_min": "Inclusive lower m/z bound in Th. Supply both bounds; they take priority over mz/mz_window.",
+    "mz_max": "Inclusive upper m/z bound in Th; must exceed mz_min.",
+    "ccs": "Reported calibrant reference collision cross-section in Å² (legacy header).",
+    "CCS_reported": "Reported calibrant reference collision cross-section in Å²; supplied, not calculated.",
     "mz_window": "Extraction half-width: 3 means target ±3. 'auto' estimates the isotope width.",
-    "peak_select": "Drift peak selection: 'highest' is the tallest peak; 'last' is the latest peak.",
+    "peak_select": "Highest chooses the strongest accepted drift peak; Last chooses the latest. Manual uses the detected peak you select in the profile.",
+    "peak_drift_bin": "Zero-based acquired bin of the selected detected drift peak; required for Manual selection.",
+    "selected_peak": "Selected candidate number, ordered by drift time; read-only after processing.",
+    "selected_td_ms": "Drift time of the selected acquired peak in milliseconds; hover for full precision.",
     "min_ms_intensity": "Minimum maximum MS intensity inside the extraction window.",
     "min_im_intensity": "Minimum drift-peak intensity after summing the m/z extraction window.",
     "peak_height_frac": "Peak-detection fraction of the drift-profile maximum: 0.1 means 10%.",
@@ -36,6 +42,9 @@ FIELD_HELP = {
 
 FIELD_WIDTHS = {
     "name": 180, "species": 240, "mw": 110, "z": 65, "mz": 115, "ccs": 115,
+    "CCS_reported": 145,
+    "mz_min": 115, "mz_max": 115, "peak_drift_bin": 130,
+    "selected_peak": 115, "selected_td_ms": 115,
     "mz_window": 130, "peak_select": 130, "min_ms_intensity": 160,
     "min_im_intensity": 160, "peak_height_frac": 155, "raw_path": 420,
     "formula": 150, "gas_mw": 115,
@@ -87,6 +96,8 @@ class CsvTable(QWidget):
         toolbar.addWidget(btn_add)
 
         btn_del = QPushButton("- Row")
+        self.btn_delete = btn_del
+        btn_del.setEnabled(False)
         btn_del.setProperty("secondary", True)
         btn_del.setProperty("compact", True)
         btn_del.setMinimumHeight(30)
@@ -97,6 +108,8 @@ class CsvTable(QWidget):
         layout.addLayout(toolbar)
 
         self.table = QTableWidget()
+        self.table.itemSelectionChanged.connect(
+            lambda: self.btn_delete.setEnabled(bool(self.table.selectedIndexes())))
         self.table.setAlternatingRowColors(True)
         self.table.setStyleSheet("QTableWidget, QHeaderView::section { font-size: 10pt; }")
         self.table.setWordWrap(False)
@@ -167,10 +180,15 @@ class CsvTable(QWidget):
     def validated_dataframe(self, required: set[str], label: str = "CSV") -> pd.DataFrame:
         """Reject invalid required numbers before submitting edited CCS rows."""
         frame = self.to_dataframe()
+        required = set(required)
+        if "ccs" in required and "ccs" not in frame and "CCS_reported" in frame:
+            required = (required - {"ccs"}) | {"CCS_reported"}
+        elif "CCS_reported" in required and "CCS_reported" not in frame and "ccs" in frame:
+            required = (required - {"CCS_reported"}) | {"ccs"}
         missing = required - set(frame.columns)
         if frame.empty or missing:
             raise ValueError(f"{label} table needs rows and columns: {', '.join(sorted(required))}.")
-        for key in ("mw", "z", "mz", "ccs"):
+        for key in ("mw", "z", "mz", "ccs", "CCS_reported"):
             if key not in required:
                 continue
             values = pd.to_numeric(frame[key], errors="coerce")
@@ -218,16 +236,28 @@ class CsvTable(QWidget):
             self.csv_path_changed.emit(str(path))
 
     def _add_row(self):
+        self._loading = True
+        blocker = QSignalBlocker(self.table)
         r = self.table.rowCount()
         self.table.insertRow(r)
         for c in range(self.table.columnCount()):
             self.table.setItem(r, c, QTableWidgetItem(""))
+        self._loading = False
+        del blocker
         self.data_changed.emit()
+        self.table.setCurrentCell(r, 0)
 
     def _del_row(self):
         rows = sorted(set(idx.row() for idx in self.table.selectedIndexes()), reverse=True)
+        if not rows:
+            return
+        # Selection callbacks must not inspect profiles indexed by the old
+        # rows while Qt is halfway through removing those rows.
+        self._loading = True
+        blocker = QSignalBlocker(self.table)
         for r in rows:
             self.table.removeRow(r)
-        if not rows and self.table.rowCount() > 0:
-            self.table.removeRow(self.table.rowCount() - 1)
+        self._loading = False
+        del blocker
         self.data_changed.emit()
+        self.btn_delete.setEnabled(bool(self.table.selectedIndexes()))

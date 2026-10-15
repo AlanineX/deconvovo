@@ -10,8 +10,7 @@
     },
     "scale": "1",
     "smooth_drift": {
-      "method": "gaussian",
-      "sigma": 1
+      "method": "raw"
     },
     "noise_2d": 0.5,
     "denoise": 5,

@@ -82,14 +82,14 @@ class ConvertPanel(QWidget):
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         self._log.log(f"Converting {inp} (workers={workers})", "accent")
-        self._worker = Worker(self._do_convert, inp, out, workers)
+        self._worker = Worker(self._do_convert, inp, out, workers, self.chk_skip.isChecked())
         self._worker.finished.connect(self._on_done)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _do_convert(self, inp, out, workers):
+    def _do_convert(self, inp, out, workers, skip_existing=True):
         from deconvovo.imms_convert import run as convert_run
-        return convert_run(Path(inp), Path(out), n_workers=workers)
+        return convert_run(Path(inp), Path(out), n_workers=workers, skip_existing=skip_existing)
 
     def _on_done(self, result):
         self.btn_run.setEnabled(True)

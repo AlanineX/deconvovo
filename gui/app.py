@@ -6,12 +6,12 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QListView, QListWidget,
+    QApplication, QGroupBox, QHBoxLayout, QLabel, QListView, QListWidget,
     QMainWindow, QPushButton, QSizePolicy, QSplitter, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
-from gui.theme import ACCENT, ERROR, FONT_FAMILY, TEXT_DIM, WARNING, stylesheet
+from gui.theme import ConsoleBackdrop, FONT_FAMILY, decorate_section, refresh_console_style, stylesheet
 from gui.widgets.log_panel import LogPanel
 from gui.panels.waters_workspace import WatersWorkspacePanel
 
@@ -24,6 +24,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._dark = True
+        QApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
         self.setWindowTitle("DeconVoVo · Instrument Console")
         self.setMinimumSize(1100, 700)
         screen = QGuiApplication.primaryScreen()
@@ -33,7 +34,7 @@ class MainWindow(QMainWindow):
         else:
             self.resize(1440, 900)
 
-        central = QWidget()
+        central = ConsoleBackdrop()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -46,7 +47,7 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(20, 8, 20, 8)
         row.setSpacing(14)
         brand = QLabel("DeconVoVo")
-        brand.setStyleSheet(f"font-size: 14pt; font-weight: 700; color: {ACCENT};")
+        brand.setObjectName("appBrand")
         row.addWidget(brand)
         self.nav = QListWidget()
         self.nav.setObjectName("modeNav")
@@ -60,10 +61,8 @@ class MainWindow(QMainWindow):
             self.nav.addItem(name)
             self.nav.item(self.nav.count() - 1).setToolTip(description)
         row.addWidget(self.nav)
+        self.nav.setVisible(len(PANELS) > 1)
         row.addStretch()
-        offline = QLabel("LOCAL WORKSPACE · OFFLINE VIEWERS")
-        offline.setProperty("eyebrow", True)
-        row.addWidget(offline)
         self.btn_theme = QPushButton("Light mode")
         self.btn_theme.setProperty("secondary", True)
         self.btn_theme.setProperty("compact", True)
@@ -78,6 +77,8 @@ class MainWindow(QMainWindow):
         self._panels = []
         for _name, _description, cls in PANELS:
             panel = cls(log_panel=self.log_panel)
+            if isinstance(panel, WatersWorkspacePanel):
+                panel.job_status.hide()  # Status is already shown in the footer and activity log.
             self._panels.append(panel)
             self.stack.addWidget(panel)
         self.body = QSplitter(Qt.Vertical)
@@ -93,10 +94,10 @@ class MainWindow(QMainWindow):
         footer.setFixedHeight(38)
         bottom = QHBoxLayout(footer)
         bottom.setContentsMargins(20, 4, 20, 4)
-        self.status_text = QLabel("Ready · choose a batch or load a real acquisition demo")
+        self.status_text = QLabel("Ready · choose an input folder or an example.")
+        self.status_text.setObjectName("appStatus")
         self.status_text.setTextFormat(Qt.PlainText)
         self.status_text.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.status_text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 9pt;")
         bottom.addWidget(self.status_text, 1)
         self.btn_log = QPushButton("Activity log")
         self.btn_log.setProperty("secondary", True)
@@ -112,6 +113,14 @@ class MainWindow(QMainWindow):
         self.log_panel._sig.message.connect(self._status_message)
         self.nav.currentRowChanged.connect(self._switch_panel)
         self.nav.setCurrentRow(next(i for i, entry in enumerate(PANELS) if entry[2] is WatersWorkspacePanel))
+        sections = {"Data": "data", "Acquisitions": "acquisitions", "Display": "display",
+                    "Axis ranges": "ranges", "CCS profile": "ccs", "Optional CCS": "ccs"}
+        for group in self.findChildren(QGroupBox):
+            if group.title() in sections:
+                decorate_section(group, sections[group.title()])
+        refresh_console_style(self, self._dark)
+        from gui.effects import install_console_effects
+        install_console_effects(self, self._dark)
 
     def _show_log(self, visible):
         self.log_panel.setVisible(visible)
@@ -124,10 +133,15 @@ class MainWindow(QMainWindow):
             return
         self.status_text.setText(message.splitlines()[0])
         self.status_text.setToolTip(message)
-        color = ERROR if level == "error" else WARNING if level == "warning" else TEXT_DIM
-        self.status_text.setStyleSheet(f"color: {color}; font-size: 9pt;")
+        self.status_text.setProperty("statusLevel", level)
+        self.status_text.style().unpolish(self.status_text)
+        self.status_text.style().polish(self.status_text)
+        if not self._dark:
+            refresh_console_style(self, False)
         if level == "error":
             self.btn_log.setChecked(True)
+        elif hasattr(self, "_console_effects") and (level == "success" or message.startswith("CCS ready")):
+            self._console_effects.pulse(self.status_text, warning=level == "warning")
 
     def _switch_panel(self, index):
         if 0 <= index < self.stack.count():
@@ -138,6 +152,7 @@ class MainWindow(QMainWindow):
         self._dark = not self._dark
         QApplication.instance().setStyleSheet(stylesheet(dark=self._dark))
         self.btn_theme.setText("Light mode" if self._dark else "Dark mode")
+        refresh_console_style(self, self._dark)
         from gui.widgets.plot_canvas import PlotCanvas, set_plot_dark
         set_plot_dark(self._dark)
         for canvas in self.findChildren(PlotCanvas):
@@ -145,6 +160,7 @@ class MainWindow(QMainWindow):
         for panel in self._panels:
             if isinstance(panel, WatersWorkspacePanel):
                 panel.viewer_widget.refresh_theme()
+                panel.ccs_workbench.refresh_theme(self._dark)
 
     def get_panel(self, index):
         return self._panels[index]
@@ -156,6 +172,7 @@ class MainWindow(QMainWindow):
             return
         for panel in self._panels:
             panel.close()
+        self._console_effects.shutdown()
         super().closeEvent(event)
 
 

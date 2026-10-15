@@ -11,6 +11,7 @@ datas = [
     (str(ROOT / "config"), "config"),
     (str(ROOT / "docs"), "docs"),
     (str(ROOT / "README.md"), "."),
+    (str(ROOT / "GUI_README.md"), "."),
     (str(ROOT / "examples" / "production"), "examples/production"),
     (str(Path(plotly.__file__).parent / "package_data"), "plotly/package_data"),
     (os.environ["WATERS_CONSOLE_PROVENANCE"], "build"),
@@ -22,7 +23,7 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
-        "gui.app", "gui.widgets.waters_viewer", "waters_convert",
+        "gui.app", "gui.effects", "gui.widgets.waters_viewer", "waters_convert",
         "deconvovo.waters_workflow", "deconvovo.imms_ccs_calibrate", "deconvovo.imms_view",
         "deconvovo.imms_plot", "deconvovo.imms_html",
         "plotly.offline",

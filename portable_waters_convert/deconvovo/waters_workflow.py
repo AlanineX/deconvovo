@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
 
@@ -22,12 +23,13 @@ def run(
     func: int = 1,
     ms_bin: float = 0,
     im_bin: float = 0,
+    jobs: int = 1,
     progress: Callable[[int, int, str], None] | None = None,
 ) -> dict:
     """RAW folders → validated MS/IM pairs → offline viewers → optional CCS.
 
-    Process one acquisition at a time, keeping batch memory bounded. Stop on
-    reader or plotting failure before reporting a successful workflow.
+    Run at most ``jobs`` independent RAW readers, then plot each acquisition
+    sequentially. Stop on reader or plotting failure before reporting success.
     """
     try:
         from deconvovo import waters_convert as wc
@@ -41,6 +43,8 @@ def run(
     calibrant_csv = local_path(calibrant_csv).resolve() if calibrant_csv is not None else None
     analyte_csv = local_path(analyte_csv).resolve() if analyte_csv is not None else None
     config_path = local_path(config_path).resolve() if config_path is not None else None
+    if isinstance(jobs, bool) or not isinstance(jobs, int) or jobs < 1:
+        raise ValueError("Jobs must be a positive integer")
     if not source.is_dir():
         raise FileNotFoundError(f"Source directory does not exist: {source}")
     if method not in {"direct", "twostep"}:
@@ -95,35 +99,77 @@ def run(
             previous = json.loads(settings_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pass
+    if not isinstance(previous, dict):
+        previous = {}
     if raw_dirs:
         work_dir = wc.setup_work_dir(converted_dir) if hasattr(wc, "setup_work_dir") else wc.find_cdcreader().parent
         wc.find_support_dlls(work_dir)
+        pending = []
+        run_settings = {}
+        runs_by_name = {}
         for raw in raw_dirs:
-            report(f"Converting {raw.stem}")
             outputs = [converted_dir / f"{raw.stem}_{kind}.txt" for kind in ("ms", "im")]
-            run_settings = {**settings, "raw_source": str(raw.resolve()),
-                            "source_files": [
-                                [p.name, p.stat().st_size, p.stat().st_mtime_ns]
-                                for p in sorted(raw.iterdir()) if p.is_file()
-                            ]}
-            cached = (skip_existing and previous.get(raw.stem) == run_settings
+            run_settings[raw.stem] = {**settings, "raw_source": str(raw.resolve()),
+                                      "source_files": [
+                                          [p.name, p.stat().st_size, p.stat().st_mtime_ns]
+                                          for p in sorted(raw.iterdir()) if p.is_file()
+                                      ]}
+            cached = (skip_existing and previous.get(raw.stem) == run_settings[raw.stem]
                       and all(p.is_file() and p.stat().st_size > 0 for p in outputs))
             if cached:
-                info = {"run_name": raw.stem, "status": "cached"}
+                runs_by_name[raw.stem] = {"run_name": raw.stem, "status": "cached"}
+                completed += 1
+                report(f"Converted {raw.stem}")
             else:
-                # Invalidate this run's cache before a refresh; old outputs can
-                # survive a failed reader run without becoming valid new data.
+                pending.append(raw)
                 previous.pop(raw.stem, None)
-                settings_path.write_text(json.dumps(previous, indent=2) + "\n", encoding="utf-8")
-                info = wc.convert_one_raw(raw, converted_dir, work_dir,
-                                          func=func, ms_bin=ms_bin, im_bin=im_bin)
-                if info.get("status") != "complete":
-                    raise RuntimeError(f"{raw.stem}: {info.get('status', 'conversion failed')} {info.get('stderr', '')}")
-                previous[raw.stem] = run_settings
-                settings_path.write_text(json.dumps(previous, indent=2) + "\n", encoding="utf-8")
-            runs.append(info)
+
+        def save_settings() -> None:
+            settings_path.write_text(json.dumps(previous, indent=2) + "\n", encoding="utf-8")
+
+        # Invalidate every attempted refresh before any reader starts. Old
+        # outputs and interrupted readers must never validate a failed run.
+        if pending:
+            save_settings()
+
+        def accept_conversion(raw: Path, info: dict) -> None:
+            nonlocal completed
+            if info.get("status") != "complete":
+                raise RuntimeError(f"{raw.stem}: {info.get('status', 'conversion failed')} {info.get('stderr', '')}")
+            for kind in ("ms", "im"):
+                path = converted_dir / f"{raw.stem}_{kind}.txt"
+                if not path.is_file() or path.stat().st_size == 0:
+                    raise FileNotFoundError(f"Missing or empty converted table: {path.name}")
+            runs_by_name[raw.stem] = info
+            previous[raw.stem] = run_settings[raw.stem]
+            save_settings()
             completed += 1
             report(f"Converted {raw.stem}")
+
+        if jobs == 1 or len(pending) < 2:
+            for raw in pending:
+                report(f"Converting {raw.stem}")
+                info = wc.convert_one_raw(raw, converted_dir, work_dir,
+                                          func=func, ms_bin=ms_bin, im_bin=im_bin)
+                accept_conversion(raw, info)
+        else:
+            report(f"Converting {len(pending)} acquisitions with up to {min(jobs, len(pending))} readers")
+            with ThreadPoolExecutor(max_workers=min(jobs, len(pending))) as executor:
+                futures = {}
+                try:
+                    for raw in pending:
+                        future = executor.submit(wc.convert_one_raw, raw, converted_dir, work_dir,
+                                                 func=func, ms_bin=ms_bin, im_bin=im_bin)
+                        futures[future] = raw
+                    for future in as_completed(futures):
+                        accept_conversion(futures[future], future.result())
+                except BaseException:
+                    # Cancel queued work and join readers already in progress
+                    # before returning an error to the GUI.
+                    for future in futures:
+                        future.cancel()
+                    raise
+        runs = [runs_by_name[raw.stem] for raw in raw_dirs]
     for name in names:
         for kind in ("ms", "im"):
             p = converted_dir / f"{name}_{kind}.txt"

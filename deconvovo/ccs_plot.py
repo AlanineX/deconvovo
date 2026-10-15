@@ -76,7 +76,7 @@ def plot_drift_profile(profile, pusher_us, all_peaks, selected, name, z, mz,
     """Calibrant drift profile with all peaks labeled, selected in red."""
     plt = _get_plt()
     fig, ax = plt.subplots(figsize=(10, 4))
-    dt = np.arange(len(profile)) * pusher_us / 1000.0
+    dt = (np.arange(len(profile)) + 0.5) * pusher_us / 1000.0
     ax.fill_between(dt, profile, alpha=0.25, color="gray")
     ax.plot(dt, profile, color="gray", linewidth=0.8)
 
@@ -111,8 +111,7 @@ def plot_drift_profile(profile, pusher_us, all_peaks, selected, name, z, mz,
                  fontsize=_FS * 0.85)
     nz = np.nonzero(profile)[0]
     if len(nz) > 0:
-        ax.set_xlim(max(0, nz[0] - 5) * pusher_us / 1000,
-                     min(len(profile) - 1, nz[-1] + 5) * pusher_us / 1000)
+        ax.set_xlim(dt[max(0, nz[0] - 5)], dt[min(len(profile) - 1, nz[-1] + 5)])
     # Add 20% top padding so annotations never reach the title
     ylo, yhi = ax.get_ylim()
     ax.set_ylim(ylo, yhi * 1.2)

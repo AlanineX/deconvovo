@@ -72,7 +72,7 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
                                 [m/z spectrum (bottom)]
 
     Key design:
-      - m/z panel uses RAW _ms.txt data (full isotopic resolution), NOT the binned heatmap
+      - m/z panel sums RAW IM on the original MS/IM coordinates, NOT the binned heatmap
       - Drift and 2D smoothing are INDEPENDENT dropdowns
       - Savitzky-Golay smoothing for 1D traces (preserves peak shape)
       - Gaussian smoothing for 2D heatmap (fills sparse gaps)
@@ -87,19 +87,6 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     cfg = _load_plot_config(config_path)
     dfl = cfg["defaults"]
     prs = cfg["presets"]
-
-    def _as_float(value, fallback=0.0):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return fallback
-
-    if _as_float(dfl.get("noise_2d")) <= 0 < _as_float(dfl.get("denoise")):
-        first_positive_noise = next(
-            (_as_float(v) for v in prs.get("noise_2d", []) if _as_float(v) > 0),
-            0.5,
-        )
-        dfl["noise_2d"] = first_positive_noise
 
     fig_cfg = cfg.get("figure", {})
     FS = fig_cfg.get("font_size", 20)
@@ -123,6 +110,22 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     if n_points == 0:
         return
 
+    # Read the original MS axis before defining the full viewing domain.
+    # Zero-only outer coordinates still belong to the acquisition.
+    if ms_file and Path(ms_file).exists():
+        ms_data = np.atleast_2d(np.loadtxt(str(ms_file)))
+        ms_mz, ms_int = ms_data[:, 0], ms_data[:, 1]
+    else:
+        ms_mz = np.unique(mz_raw)
+        ms_int = np.bincount(np.searchsorted(ms_mz, mz_nz), weights=int_nz,
+                             minlength=len(ms_mz))
+
+    # The linked spectrum sums IM intensities on the complete original axis.
+    # A mismatched MS table adds its coordinates without replacing IM counts.
+    profile_mz = np.union1d(ms_mz, mz_raw)
+    profile_int = np.bincount(np.searchsorted(profile_mz, mz_nz), weights=int_nz,
+                             minlength=len(profile_mz))
+
     # Compute drift time if pusher period is known
     if pusher_us:
         drift_time_nz = (drift_nz.astype(float) + 0.5) * pusher_us / 1000.0
@@ -134,29 +137,66 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
             out_dir / f"{run_name}_2d_imms.csv", index=False, float_format="%.4f")
 
     # --- Build heatmap grid ---
-    # The heatmap m/z range is CLIPPED to initial_view.mz_range when set, so
-    # the same N bins serve only the visible window — 5x sharper than spreading
-    # them over the full data range. Out-of-window samples are dropped from the
-    # heatmap but stay in `rawIM` for client-side re-binning if the user zooms
-    # to a wider window.
-    mz_lo, mz_hi = float(mz_nz.min()), float(mz_nz.max())
+    # The heatmap normally uses the requested mass window. A window narrower
+    # than a Gaussian's support needs surrounding acquired data for filtering;
+    # this processing context does not change the visible limits or 1D ROI.
+    mz_lo, mz_hi = float(profile_mz[0]), float(profile_mz[-1])
     _iv_pre = cfg.get("initial_view") or {}
     if _iv_pre.get("mz_range"):
         _hm_lo, _hm_hi = _iv_pre["mz_range"]
         hm_mz_range = (max(mz_lo, float(_hm_lo)), min(mz_hi, float(_hm_hi)))
+        if hm_mz_range[1] <= hm_mz_range[0]:
+            hm_mz_range = (float(_hm_lo), float(_hm_hi))
         _hm_mask = (mz_nz >= hm_mz_range[0]) & (mz_nz <= hm_mz_range[1])
     else:
         hm_mz_range = (mz_lo, mz_hi)
         _hm_mask = slice(None)
-    n_drift = int(drift_nz.max()) + 1
+    requested_mz_domain = hm_mz_range
+    n_drift = int(drift_raw.max()) + 1
 
     # Native bin count = unique m/z values inside the heatmap m/z range, capped
     # at 25 600 so the embedded heatmap stays under ~5 M cells × 8 bytes ≈ 40 MB
     # JSON. Clipping first means "Native" is native at the visible scale, not
     # diluted by samples outside the view.
-    n_mz_native = int(min(25600, max(200, len(np.unique(mz_nz[_hm_mask])))))
-    if isinstance(n_mz_bins, str) and n_mz_bins.lower() == "native":
+    _unique_im_mz = np.unique(mz_nz)
+    def _native_count(domain):
+        return min(25600, max(200, int(np.searchsorted(_unique_im_mz, domain[1], "right")
+            - np.searchsorted(_unique_im_mz, domain[0]))))
+    _native_mode = isinstance(n_mz_bins, str) and n_mz_bins.lower() == "native"
+    n_mz_native = _native_count(hm_mz_range)
+    if _native_mode:
         n_mz_bins = n_mz_native
+    _spacing = np.diff(profile_mz)
+    _spacing = _spacing[_spacing > 0]
+    finest_mz_step = float(_spacing.min()) if len(_spacing) else 0.01
+    _preset = dfl.get("smooth_2d", {})
+    _sigma = float(_preset.get("sigma", 0)) if _preset.get("method") == "gaussian" else 0
+    if _preset.get("method") == "gaussian" and np.isfinite(_sigma) and _sigma > 0 and mz_hi > mz_lo:
+        _dr_count = dfl.get("drift_bins", "native")
+        _dr_count = n_drift if _dr_count == "native" else int(_dr_count)
+        _previous_bins = None
+        _span = requested_mz_domain[1] - requested_mz_domain[0]
+        while _dr_count > 0:
+            if _native_mode:
+                n_mz_bins = _native_count(hm_mz_range)
+            if n_mz_bins == _previous_bins or n_mz_bins <= 0:
+                break
+            _previous_bins = n_mz_bins
+            _ratio = n_mz_bins / _dr_count
+            _scale = dfl.get("scale", "1")
+            _factor = _ratio if _scale == "full" else np.sqrt(_ratio) if _scale == "sqrt" else float(_scale)
+            if not np.isfinite(_factor) or _factor < 0:
+                break
+            _support = _sigma * max(_factor, _ratio if _preset.get("sigma_dr") is None else 0)
+            if _span >= 8 * _support:
+                break
+            _padding = max(4 * _support, (n_mz_bins * finest_mz_step - _span) / 2)
+            _width = min(mz_hi - mz_lo, _span + 2 * _padding)
+            _low = max(mz_lo, min(requested_mz_domain[0] - _padding, mz_hi - _width))
+            hm_mz_range = (_low, _low + _width)
+    n_mz_native = _native_count(hm_mz_range)
+    if n_mz_bins * n_drift > 8_000_000:
+        raise ValueError("The requested heatmap is too large. Choose fewer m/z or drift bins.")
     mz_edges = np.linspace(hm_mz_range[0], hm_mz_range[1], n_mz_bins + 1)
     mz_centers = (mz_edges[:-1] + mz_edges[1:]) / 2
     heatmap = np.zeros((n_drift, n_mz_bins), dtype=np.float64)
@@ -181,42 +221,22 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
         drift_bins = drift_centers
         drift_label = "Drift Time (bins)"
 
-    # --- Load raw MS spectrum for m/z panel (full isotopic resolution) ---
-    # This is the CDCReader _ms.txt with ~0.01 Da spacing — NOT the binned heatmap.
-    # Profile MS data naturally has peak widths from the TOF instrument resolution.
-    # Zoom in to ~1-2 Da range to see individual isotope peaks.
-    if ms_file and Path(ms_file).exists():
-        ms_data = np.loadtxt(str(ms_file))
-        ms_mz, ms_int = ms_data[:, 0], ms_data[:, 1]
-    else:
-        ms_mz, ms_int = sub_mz, sub_raw.sum(axis=0)
-
     # --- Raw IM data grouped by drift bin (for independent drift profile) ---
     # Analogous to _ms.txt for the m/z panel: raw data, not rebinned heatmap.
     # rawIM[d] = sorted array of [mz, intensity] pairs at drift bin d.
     from collections import defaultdict
     _drift_groups = defaultdict(list)
     for _mz, _dr, _it in zip(mz_nz, drift_nz, int_nz):
-        _drift_groups[int(_dr)].append([round(float(_mz), 4), round(float(_it))])
+        _drift_groups[int(_dr)].append([float(_mz), float(_it)])
     _raw_im = []
     for _d in range(n_drift):
         pts = _drift_groups.get(_d, [])
         pts.sort(key=lambda p: p[0])  # sort by m/z for fast range filtering
         _raw_im.append(pts)
 
-    # Native m/z sampling interval — the floor for the m/z panel's profile grid.
-    # Profile mode must NOT bin finer than this or the connecting line dips to
-    # zero between native samples and renders as a comb of spikes (looks like
-    # sticks). Use the 95th percentile of the within-peak sample spacing
-    # (diffs < 0.1 Da exclude the large inter-peak gaps); ×1.3 safety for the
-    # m/z-dependent growth of TOF sampling. Falls back to 0.01 Da.
-    _umz = np.unique(mz_nz)
-    _dmz = np.diff(_umz)
-    _dmz = _dmz[(_dmz > 0) & (_dmz < 0.1)]
-    native_mz_step = float(np.percentile(_dmz, 95) * 1.3) if len(_dmz) else 0.01
-
     # --- Raw drift profile ---
-    drift_tic_raw = sub_raw.sum(axis=1)
+    drift_tic_raw = np.bincount(drift_nz[valid], weights=int_nz[valid],
+                                minlength=n_drift)
 
     # --- Build figure with MINIMAL traces ---
     # All smoothing/noise is done CLIENT-SIDE in JS from the embedded raw data.
@@ -242,8 +262,10 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
 
     # Drift profile (left)
     fig.add_trace(go.Scatter(
-        x=drift_tic_raw, y=drift_bins, mode="lines",
-        line=dict(color="black", width=0.7), showlegend=False,
+        x=drift_tic_raw, y=drift_bins,
+        mode="lines+markers" if len(drift_bins) == 1 else "lines",
+        marker=dict(color="black", size=5),
+        line=dict(color="black", width=0.7, simplify=False), showlegend=False,
         hovertemplate="Drift: %{y:.3f}<br>TIC: %{x:.0f}<extra></extra>",
     ), row=1, col=1)
 
@@ -256,17 +278,18 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     # window — Myoglobin native at m/z 1953 falsely collapses visible 350–1250
     # peaks to ~20% of the axis, looking like nothing is shown).
     _iv = cfg.get("initial_view") or {}
-    _ms_mz_init = ms_mz
-    _ms_int_init = ms_int
+    _ms_mz_init = profile_mz
+    _ms_int_init = profile_int
     if _iv.get("mz_range"):
         _lo, _hi = _iv["mz_range"]
-        _mask = (ms_mz >= _lo) & (ms_mz <= _hi)
-        if _mask.any():
-            _ms_mz_init = ms_mz[_mask]
-            _ms_int_init = ms_int[_mask]
+        _mask = (profile_mz >= _lo) & (profile_mz <= _hi)
+        _ms_mz_init = profile_mz[_mask]
+        _ms_int_init = profile_int[_mask]
     fig.add_trace(go.Scatter(
-        x=_ms_mz_init.tolist(), y=_ms_int_init.tolist(), mode="lines",
-        line=dict(color="#333", width=0.6), showlegend=False,
+        x=_ms_mz_init.tolist(), y=_ms_int_init.tolist(),
+        mode="lines+markers" if len(_ms_mz_init) == 1 else "lines",
+        marker=dict(color="#333", size=5),
+        line=dict(color="#333", width=0.6, simplify=False), showlegend=False,
         hovertemplate="m/z: %{x:.4f}<br>I: %{y:.0f}<extra></extra>",
     ), row=2, col=2)
 
@@ -515,6 +538,8 @@ def plot_im_data(im_file: Path, ms_file: Path | None, run_name: str, out_dir: Pa
     dr_json = _json.dumps(drift_bins.tolist())
     ms_mz_j = _json.dumps(ms_mz.tolist())
     ms_int_j = _json.dumps(ms_int.tolist())
+    profile_mz_j = _json.dumps(profile_mz.tolist())
+    native_im_mz_j = _json.dumps(_unique_im_mz.tolist())
     raw_im_j = _json.dumps(_raw_im)
     fig_json = fig.to_json()
     cmaps_json = _json.dumps(cmaps)
@@ -641,7 +666,7 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
     <button id="exp2d" title="Export 2D heatmap only as high-res PNG"
       style="font-size:{int(FS*0.85)}px;padding:5px 10px;border:1px solid #999;border-radius:3px;
       background:#eee;cursor:pointer">2D PNG</button>
-    <button id="expdrift" title="Export full-domain rebinned drift intensity and a separately smoothed/resampled profile; these are not a current-view capture"
+    <button id="expdrift" title="Export full-domain drift intensity and a separately smoothed profile at every original drift bin; these are not a current-view capture"
       style="font-size:{int(FS*0.85)}px;padding:5px 10px;border:1px solid #999;border-radius:3px;
       background:#eee;cursor:pointer">Drift raw + smoothed CSV</button>
     <button id="expmz" title="Export the original MS table in the visible m/z window and a separately thresholded copy; these are not the drift-linked displayed trace"
@@ -651,33 +676,70 @@ body{{font-family:Liberation Sans,Arial,sans-serif;background:#fff}}
 </div>
 <script>
 var H={hm_json},MZ={mz_json},DR={dr_json},msMz={ms_mz_j},msI={ms_int_j};
+var DR_PROFILE=DR.slice();
 var rawIM={raw_im_j};
-// hmMzLo/hmMzHi = the heatmap m/z domain. HM_MZ_LO0/HI0 is the IMMUTABLE baked
-// domain; hmMzLo/hmMzHi are kept equal to it (never narrowed by zoom).
+var profileMz={profile_mz_j};
+var nativeImMz={native_im_mz_j};
+var profileIndex=new Map();
+for(var i=0;i<profileMz.length;i++)profileIndex.set(profileMz[i],i);
+// The initial processing domain can include Gaussian context. Rebinning derives
+// context from the fixed requested bounds and controls, never from mouse zoom.
 var HM_MZ_LO0={hm_mz_range[0]},HM_MZ_HI0={hm_mz_range[1]};
+var REQUEST_MZ_LO0={requested_mz_domain[0]},REQUEST_MZ_HI0={requested_mz_domain[1]};
 var RAW_MZ_LO0={mz_lo},RAW_MZ_HI0={mz_hi};
+var finestMzStep={finest_mz_step};
 var hmMzLo=HM_MZ_LO0,hmMzHi=HM_MZ_HI0;
 var nD=H.length,nM=MZ.length;
 var nD_native=nD;
 var nM_native={n_mz_native};
-var nativeMzStep={native_mz_step};
 var pusherUs={pusher_us if pusher_us else 0};
 var axRatio=nM/nD;
 function ensureOdd(v){{v=Math.round(v);return v<3?3:(v%2===0?v+1:v);}}
 
+// Keep numeric viewing limits separate from Gaussian processing context.
+function nativeMzCount(lo,hi) {{
+  var right=bsearch(nativeImMz,hi);
+  if(right<nativeImMz.length&&nativeImMz[right]===hi)right++;
+  return Math.min(25600,Math.max(200,right-bsearch(nativeImMz,lo)));
+}}
+function processingMzRange(nbMz,nbDr,nativeMode) {{
+  var lo=REQUEST_MZ_LO0,hi=REQUEST_MZ_HI0,span=hi-lo;
+  var preset=JSON.parse(document.getElementById('sm2d').value),sigma=Number(preset.sigma)||0;
+  if(preset.method==='gaussian'&&Number.isFinite(sigma)&&sigma>0&&RAW_MZ_HI0>RAW_MZ_LO0) {{
+    var previous=null;
+    while(nbDr>0) {{
+      if(nativeMode)nbMz=nativeMzCount(lo,hi);
+      if(nbMz===previous||nbMz<=0)break;
+      previous=nbMz;
+      var ratio=nbMz/nbDr,scale=document.getElementById('mzscale').value;
+      var factor=scale==='full'?ratio:scale==='sqrt'?Math.sqrt(ratio):parseFloat(scale);
+      if(!Number.isFinite(factor)||factor<0)break;
+      var support=sigma*Math.max(factor,preset.sigma_dr==null?ratio:0);
+      if(span>=8*support)break;
+      var padding=Math.max(4*support,(nbMz*finestMzStep-span)/2);
+      var width=Math.min(RAW_MZ_HI0-RAW_MZ_LO0,span+2*padding);
+      lo=Math.max(RAW_MZ_LO0,Math.min(REQUEST_MZ_LO0-padding,RAW_MZ_HI0-width));hi=lo+width;
+    }}
+  }}
+  if(nativeMode)nbMz=nativeMzCount(lo,hi);
+  return [lo,hi,nbMz];
+}}
+
 // --- Rebin heatmap from raw IM data (both axes) ---
 // === Rebuild the heatmap H from immutable rawIM ===
-// ORDER-INDEPENDENCE: H is rebuilt over the FIXED baked m/z domain
-// [HM_MZ_LO0, HM_MZ_HI0] — NEVER the live zoom. So H is a pure function of
-// (nbMz, nbDr): it has no zoom history and cannot ratchet. Zooming changes only
-// the visible axis range; the heatmap is already at nbMz resolution across the
-// whole domain. hmMzLo/hmMzHi stay constant = the baked domain.
+// H is a pure function of the original requested bounds, bin counts and
+// Gaussian settings. Mouse zoom changes visible limits and linked profiles;
+// it never ratchets the processing context or replaces acquired coordinates.
 function rebinFull() {{
   var mbVal = document.getElementById('nbins').value;
   var nbMz = (mbVal === 'native') ? nM_native : parseInt(mbVal);
   var dbVal = document.getElementById('dbins').value;
   var nbDr = (dbVal === 'native') ? nD_native : parseInt(dbVal);
-  var mzLo = HM_MZ_LO0, mzHi = HM_MZ_HI0;   // immutable baked domain
+  if(!(nbMz>0&&nbDr>0)||!Number.isFinite(nbMz*nbDr)||nbMz*nbDr>8000000)
+    throw new Error('The requested heatmap is too large. Choose fewer m/z or drift bins.');
+  var domain=processingMzRange(nbMz,nbDr,mbVal==='native'),mzLo=domain[0],mzHi=domain[1];
+  nbMz=domain[2];
+  if(nbMz*nbDr>8000000)throw new Error('The requested heatmap is too large. Choose fewer m/z or drift bins.');
   hmMzLo = mzLo; hmMzHi = mzHi;
   var mzStep = (mzHi - mzLo) / nbMz;
   var drStep = nD_native / nbDr;
@@ -692,7 +754,7 @@ function rebinFull() {{
   for (var d = 0; d < nbDr; d++) {{
     var row = new Array(nbMz).fill(0);
     var dLo = Math.floor(d * drStep), dHi = Math.floor((d + 1) * drStep);
-    if (dHi > nD_native) dHi = nD_native;
+    if (d === nbDr - 1 || dHi > nD_native) dHi = nD_native;
     for (var dd = dLo; dd < dHi; dd++) {{
       var pts = rawIM[dd];
       for (var i = 0; i < pts.length; i++) {{
@@ -710,10 +772,8 @@ function rebinFull() {{
 var figData={fig_json};
 var P=document.getElementById('plot');
 window.watersPendingRender=Plotly.newPlot(P,figData.data,figData.layout,{{responsive:true}}).then(function(){{
-  // One-shot render so the FIRST paint already reflects the default smoothing /
-  // noise / intensity controls. Without this the baked traces are raw and the
-  // heatmap visibly "jumps" the first time any control is touched.
-  return applyAll();
+  // First paint applies both saved bin counts and the filtering context.
+  return rebinFull();
 }});
 
 // --- Savitzky-Golay in JS (fits polynomial to sliding window) ---
@@ -762,6 +822,8 @@ function gaussSmooth1D(y, sigma) {{
   var n = y.length;
   if (sigma <= 0 || n < 3) return y.slice();
   var r = Math.ceil(4 * sigma);
+  if(!Number.isFinite(r)||n+2*r>8000000)
+    throw new Error('The Gaussian smoothing window is too large. Choose less smoothing or fewer bins.');
   var kern = [], ksum = 0;
   for (var i = -r; i <= r; i++) {{
     var v = Math.exp(-0.5 * (i / sigma) * (i / sigma));
@@ -785,6 +847,10 @@ function gaussSmooth1D(y, sigma) {{
 }}
 function gaussSmooth2D(h, sigmaD, sigmaM) {{
   var nd = h.length, nm = h[0].length;
+  var rd=Math.ceil(4*sigmaD),rm=Math.ceil(4*sigmaM);
+  if(!Number.isFinite(rd)||!Number.isFinite(rm)||
+      (rd>=nd&&(nd+2*rd)*nm>8000000)||(rm>=nm&&(nm+2*rm)*nd>8000000))
+    throw new Error('The Gaussian smoothing window is too large. Choose less smoothing or fewer bins.');
   var t1 = [];
   for (var m = 0; m < nm; m++) {{
     var col = [];
@@ -894,10 +960,16 @@ function getVisibleRange() {{
   var mBh = mzHi > mzLo ? Math.min(nM - 1, Math.ceil((mzHi - hmMzLo) / mzStep) - 1) : -1;
   var dBl = drHi > drLo ? Math.max(0, Math.floor(drLo / drWidth)) : 0;
   var dBh = drHi > drLo ? Math.min(nD - 1, Math.ceil(drHi / drWidth) - 1) : -1;
-  // Native drift bin range for rawIM indexing (rawIM has nD_native entries)
-  var drStep = nD_native / nD;
-  var ndBl = Math.max(0, Math.floor(dBl * drStep));
-  var ndBh = dBh >= dBl ? Math.min(nD_native - 1, Math.floor((dBh + 1) * drStep) - 1) : -1;
+  // Raw IM drift selection uses physical native-bin edges, independently of
+  // the coarse heatmap. Partially visible native bins retain their samples.
+  var nativeWidth=pusherUs>0?pusherUs/1000:1;
+  function nativePosition(value) {{
+    var position=value/nativeWidth,nearest=Math.round(position);
+    return Math.abs(position-nearest)<=2*Number.EPSILON*Math.max(1,Math.abs(position))
+      ?nearest:position;
+  }}
+  var ndBl=drHi>drLo?Math.max(0,Math.floor(nativePosition(drLo))):0;
+  var ndBh=drHi>drLo?Math.min(nD_native-1,Math.ceil(nativePosition(drHi))-1):-1;
   return {{ mzLo:mzLo, mzHi:mzHi, drLo:drLo, drHi:drHi,
            dBl:dBl, dBh:dBh, ndBl:ndBl, ndBh:ndBh, mBl:mBl, mBh:mBh }};
 }}
@@ -959,41 +1031,40 @@ function bsearch(arr, val) {{
   return lo;
 }}
 
+// Sum exact RAW m/z points on every original drift bin, without 2D rebinning.
+function rawDriftProfile(mzLo,mzHi) {{
+  var dp=new Array(nD_native).fill(0);
+  if(mzHi<mzLo)return dp;
+  for(var d=0;d<nD_native;d++) {{
+    var pts=rawIM[d],lo=0,hi=pts.length-1,i0=pts.length;
+    while(lo<=hi) {{ var mid=(lo+hi)>>1;
+      if(pts[mid][0]<mzLo)lo=mid+1;else {{i0=mid;hi=mid-1;}} }}
+    for(var i=i0;i<pts.length&&pts[i][0]<=mzHi;i++)dp[d]+=pts[i][1];
+  }}
+  return dp;
+}}
+
 // === Update both marginals — ONE Plotly.restyle, no chains ===
 function updateMarginals() {{
   var vr = getVisibleRange();
 
-  // Drift: sum heatmap in visible m/z range (linked to m/z zoom)
-  var dp = new Array(nD).fill(0);
-  for (var d = 0; d < nD; d++) for (var m = vr.mBl; m <= vr.mBh; m++) dp[d] += H[d][m];
+  // Drift: exact visible m/z selection at all original acquisition drift bins.
+  var dp=rawDriftProfile(vr.mzLo,vr.mzHi);
   var ncut_d = parseFloat(document.getElementById('noisedrift').value);
   if (ncut_d > 0) {{
-    var pk = 0; for (var i = 0; i < nD; i++) if (dp[i] > pk) pk = dp[i];
+    var pk = 0; for (var i = 0; i < dp.length; i++) if (dp[i] > pk) pk = dp[i];
     var thr = pk * ncut_d / 100;
-    for (var i = 0; i < nD; i++) if (dp[i] < thr) dp[i] = 0;
+    for (var i = 0; i < dp.length; i++) if (dp[i] < thr) dp[i] = 0;
   }}
   var preset = JSON.parse(document.getElementById('smdrift').value);
   if (preset.method !== 'raw') dp = smooth1D(dp, preset);
 
-  // m/z: drift-zoom-aware profile from rawIM (stored at 4dp = 0.0001 Da, finer than the
-  // native ~8 mDa Agilent / ~12 mDa Waters TOF sample spacing).
-  // ADAPTIVE m/z grid step: chosen so the visible window has at most ~12k points
-  // (keeps profile rendering fast at wide zooms while preserving near-native
-  // resolution at narrow zooms). Native step floor = 0.0001 Da.
-  var _range = vr.mzHi - vr.mzLo;
-  var _niceSteps = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0];
-  var MZ_STEP = _niceSteps[_niceSteps.length - 1];
-  for (var _ni = 0; _ni < _niceSteps.length; _ni++) {{
-    if (_range / _niceSteps[_ni] <= 12000) {{ MZ_STEP = _niceSteps[_ni]; break; }}
-  }}
-  // Floor the grid step at the native sampling interval. A FINER grid injects
-  // zeros between native samples, so the connected profile line collapses to a
-  // comb of spikes (which looked like sticks). With the floor, profile mode
-  // draws true smooth peak humps; stick mode peak-picks from the same profile.
-  if (MZ_STEP < nativeMzStep) MZ_STEP = nativeMzStep;
-  var nMz = Math.max(1, Math.ceil(_range / MZ_STEP) + 1);
-  var mx = new Array(nMz), my = new Array(nMz).fill(0);
-  for (var i = 0; i < nMz; i++) mx[i] = vr.mzLo + i * MZ_STEP;
+  // Exact acquired m/z coordinates, including the original zero-gap samples.
+  // Zooming selects coordinates and drift bins; it never resamples the profile.
+  var iLo=bsearch(profileMz,vr.mzLo),iHi=bsearch(profileMz,vr.mzHi);
+  if(iHi<profileMz.length&&profileMz[iHi]===vr.mzHi)iHi++;
+  if(vr.mzHi<vr.mzLo)iHi=iLo;
+  var mx=profileMz.slice(iLo,iHi),my=new Array(mx.length).fill(0);
   for (var d = vr.ndBl; d <= vr.ndBh; d++) {{
     var pts = rawIM[d];
     if (!pts || pts.length === 0) continue;
@@ -1001,8 +1072,8 @@ function updateMarginals() {{
     while (lo <= hi) {{ var mid = (lo+hi) >> 1;
       if (pts[mid][0] < vr.mzLo) lo = mid + 1; else {{ i0 = mid; hi = mid - 1; }} }}
     for (var i = i0; i < pts.length && pts[i][0] <= vr.mzHi; i++) {{
-      var bi = Math.round((pts[i][0] - vr.mzLo) / MZ_STEP);
-      if (bi >= 0 && bi < nMz) my[bi] += pts[i][1];
+      var bi=profileIndex.get(pts[i][0])-iLo;
+      if(bi>=0&&bi<my.length)my[bi]+=pts[i][1];
     }}
   }}
   var ncut_m = parseFloat(document.getElementById('noisemz').value);
@@ -1017,28 +1088,29 @@ function updateMarginals() {{
   var _mzPeak = 0; for (var i = 0; i < my.length; i++) if (my[i] > _mzPeak) _mzPeak = my[i];
   // Apply MS display mode: stick (peak-picked) vs profile (raw)
   var msmode = document.getElementById('msmode').value;
-  if (msmode === 'stick' && mx.length > 2) {{
-    var pk = 0; for (var i = 0; i < my.length; i++) if (my[i] > pk) pk = my[i];
-    var thr = pk * 0.01;  // 1% of in-window max — keeps real peaks, drops shoulders
-    // Local-max window ≈ one peak WIDTH (~0.08 Da), NOT the inter-peak spacing.
-    // (The grid is now floored at the native sampling so the profile is smooth —
-    // no comb — so a narrow window finds one stick per real peak without the old
-    // over-wide ±0.5 Da window that merged adjacent isotopes into a single stick.)
-    var win = Math.max(2, Math.round(0.08 / MZ_STEP));
-    var sx = [], sy = [];
-    for (var i = win; i < my.length - win; i++) {{
-      if (my[i] <= thr) continue;
-      var isMax = true;
-      for (var j = i - win; j <= i + win; j++) {{
-        if (j !== i && my[j] > my[i]) {{ isMax = false; break; }}
+  if (msmode === 'stick') {{
+    var thr=_mzPeak*0.01,sx=[],sy=[];
+    // Find local maxima on the original coordinates; the midpoint of a flat
+    // plateau matches scipy.find_peaks. Endpoints are not local maxima.
+    for(var i=1;i<my.length-1;i++) {{
+      if(my[i]<=my[i-1])continue;
+      var right=i;
+      while(right+1<my.length&&my[right+1]===my[i])right++;
+      if(right<my.length-1&&my[right]>my[right+1]) {{
+        var peak=Math.floor((i+right)/2),isMax=my[peak]>thr;
+        var left=bsearch(mx,mx[peak]-0.08);
+        for(var j=left;isMax&&j<mx.length&&mx[j]<=mx[peak]+0.08;j++)
+          if(my[j]>my[peak])isMax=false;
+        if(isMax) {{ sx.push(mx[peak],mx[peak],null);sy.push(0,my[peak],null); }}
       }}
-      if (isMax) {{ sx.push(mx[i], mx[i], null); sy.push(0, my[i], null); }}
+      i=right;
     }}
-    mx = sx; my = sy;
+    mx=sx;my=sy;
   }}
 
   // Single restyle — Plotly auto-scales axes (fixedrange removed)
-  var render=Plotly.restyle(P, {{x: [dp, mx], y: [DR, my]}}, [{DRIFT_IDX}, {MZ_IDX}]);
+  var render=Plotly.restyle(P, {{x: [dp, mx], y: [DR_PROFILE, my],
+    mode:[dp.length===1?'lines+markers':'lines',mx.length===1?'lines+markers':'lines']}}, [{DRIFT_IDX}, {MZ_IDX}]);
   // Empty-window guard: keep the m/z panel visible (with a sane fallback range)
   // instead of collapsing to a degenerate axis. Only relayout on a state CHANGE,
   // and set a flag so our own relayout doesn't re-trigger the handler (no loop).
@@ -1061,8 +1133,8 @@ function applyAll() {{
 document.getElementById('apply').onclick = applyAll;
 
 // Wire dropdown changes
-document.getElementById('sm2d').onchange = apply2D;
-document.getElementById('mzscale').onchange = apply2D;
+document.getElementById('sm2d').onchange = rebinFull;
+document.getElementById('mzscale').onchange = rebinFull;
 document.getElementById('noise2d').onchange = apply2D;
 document.getElementById('denoise').onchange = apply2D;
 document.getElementById('noisedrift').onchange = updateMarginals;
@@ -1146,6 +1218,7 @@ async function watersExportCurrent(kind) {{
       range:full[name].range.slice(),autorange:false,showticklabels:true}});
   }}
   var trace=Object.assign({{}},P.data[index],{{xaxis:'x',yaxis:'y'}});
+  if(index!=={HM_IDX})trace.line=Object.assign({{}},trace.line,{{simplify:false}});
   if(index==={HM_IDX})trace.colorbar=Object.assign({{}},trace.colorbar,{{len:1,y:0.5}});
   var layout={{font:lo.font,width:full.width,height:full.height,
     margin:{{l:80,r:index==={HM_IDX}?100:40,t:20,b:70}},
@@ -1166,57 +1239,41 @@ async function watersExportCurrent(kind) {{
 document.getElementById('expfull').onclick = function() {{watersExportCurrent('full_png');}};
 document.getElementById('exp2d').onclick = function() {{watersExportCurrent('heatmap_png');}};
 document.getElementById('expdrift').onclick = function() {{
-  // Export TWO drift CSVs: raw rebinned intensity + smoothed/resampled.
-  // 1. Raw — current drift bins, full baked m/z domain TIC.
-  var dp = new Array(nD).fill(0);
-  for (var d = 0; d < nD; d++) for (var m = 0; m < nM; m++) dp[d] += H[d][m];
+  // Both legacy CSVs retain every original coordinate over the baked domain.
+  var dp=rawDriftProfile(REQUEST_MZ_LO0,REQUEST_MZ_HI0);
   var driftColumn=pusherUs>0?'drift_time_ms':'drift_bin';
-  var lines = [driftColumn+',intensity'];
-  for (var d = 0; d < nD; d++) lines.push(DR[d].toFixed(4) + ',' + dp[d].toFixed(1));
-  downloadCSV('{run_name}_drift_raw.csv', lines.join('\\n'));
+  var lines=[driftColumn+',intensity'];
+  for(var d=0;d<nD_native;d++)lines.push(DR_PROFILE[d]+','+dp[d]);
+  downloadCSV('{run_name}_drift_raw.csv',lines.join('\\n'));
 
-  // 2. Smoothed — apply current settings, resample to 0.02ms grid
-  var preset = JSON.parse(document.getElementById('smdrift').value);
-  var ncut = parseFloat(document.getElementById('noisedrift').value);
-  var dpS = dp.slice();
-  if (ncut > 0) {{
-    var pk = 0; for (var i = 0; i < dpS.length; i++) if (dpS[i] > pk) pk = dpS[i];
-    var thr = pk * ncut / 100;
-    dpS = dpS.map(function(v) {{ return v < thr ? 0 : v; }});
+  var preset=JSON.parse(document.getElementById('smdrift').value);
+  var ncut=parseFloat(document.getElementById('noisedrift').value),dpS=dp.slice();
+  if(ncut>0) {{
+    var pk=0;for(var i=0;i<dpS.length;i++)if(dpS[i]>pk)pk=dpS[i];
+    var thr=pk*ncut/100;
+    dpS=dpS.map(function(v) {{return v<thr?0:v;}});
   }}
-  if (preset.method !== 'raw') dpS = smooth1D(dpS, preset);
-  // Resample to 0.02ms uniform grid via linear interpolation
-  var dtLo = DR[0], dtHi = DR[nD-1], step = 0.02;
-  var lines2 = [driftColumn+',intensity'];
-  for (var t = dtLo; t <= dtHi; t += step) {{
-    // Find bracketing bins
-    var idx = 0;
-    while (idx < nD-1 && DR[idx+1] < t) idx++;
-    var v;
-    if (idx >= nD-1) v = dpS[nD-1];
-    else {{
-      var frac = (t - DR[idx]) / (DR[idx+1] - DR[idx]);
-      v = dpS[idx] + frac * (dpS[idx+1] - dpS[idx]);
-    }}
-    lines2.push(t.toFixed(4) + ',' + Math.max(0, v).toFixed(1));
-  }}
-  downloadCSV('{run_name}_drift_smoothed.csv', lines2.join('\\n'));
+  if(preset.method!=='raw')dpS=smooth1D(dpS,preset);
+  var lines2=[driftColumn+',intensity'];
+  for(var d=0;d<nD_native;d++)lines2.push(DR_PROFILE[d]+','+Math.max(0,dpS[d]));
+  downloadCSV('{run_name}_drift_smoothed.csv',lines2.join('\\n'));
 }};
 document.getElementById('expmz').onclick = function() {{
   // Export TWO m/z CSVs: raw + denoised (noise floor applied)
   var vr = getVisibleRange();
   var iLo = bsearch(msMz, vr.mzLo);
   var iHi = bsearch(msMz, vr.mzHi);
-  if (iHi >= msMz.length) iHi = msMz.length - 1;
+  if (iHi < msMz.length && msMz[iHi] === vr.mzHi) iHi++;
+  if (vr.mzHi < vr.mzLo) iHi = iLo;
 
   // 1. Raw — visible range, no processing
   var lines = ['mz,intensity'];
-  for (var i = iLo; i <= iHi; i++) lines.push(msMz[i].toFixed(6) + ',' + msI[i].toFixed(1));
+  for (var i = iLo; i < iHi; i++) lines.push(msMz[i] + ',' + msI[i]);
   downloadCSV('{run_name}_mz_raw.csv', lines.join('\\n'));
 
   // 2. Denoised — noise floor applied
-  var mx = msMz.slice(iLo, iHi + 1);
-  var my = msI.slice(iLo, iHi + 1);
+  var mx = msMz.slice(iLo, iHi);
+  var my = msI.slice(iLo, iHi);
   var ncut = parseFloat(document.getElementById('noisemz').value);
   if (ncut > 0) {{
     var peak = 0; for (var i = 0; i < my.length; i++) if (my[i] > peak) peak = my[i];
@@ -1224,7 +1281,7 @@ document.getElementById('expmz').onclick = function() {{
     my = my.map(function(v) {{ return v < thr ? 0 : v; }});
   }}
   var lines2 = ['mz,intensity'];
-  for (var i = 0; i < mx.length; i++) lines2.push(mx[i].toFixed(6) + ',' + my[i].toFixed(1));
+  for (var i = 0; i < mx.length; i++) lines2.push(mx[i] + ',' + my[i]);
   downloadCSV('{run_name}_mz_denoised.csv', lines2.join('\\n'));
 }};
 

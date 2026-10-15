@@ -9,8 +9,7 @@
     },
     "scale": "sqrt",
     "smooth_drift": {
-      "method": "gaussian",
-      "sigma": 1
+      "method": "raw"
     },
     "noise_2d": 15,
     "denoise": 50,
@@ -28,10 +27,7 @@
       350,
       1250
     ],
-    "drift_range": [
-      0,
-      15
-    ]
+    "drift_range": null
   },
   "presets": {
     "smooth_2d": [

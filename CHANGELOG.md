@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.4 · Native acquisition and calibration workspace
+
+- Refined both themes with native glass materials, readable selection/focus states and a visible dark gradient.
+- Simplified RAW processing, conversion-cache reuse, resizable acquisition columns and complete real demos with simple names.
+- Preserved raw 1D points through zoom and 2D bin changes; added target editing and linked native CCS profiles.
+- Merged calibration review and reference editing, added bulk/manual peak choices, cached fitting and explicit CCS generation with stale-result handling.
+- Validated source and frozen applications with complete real acquisitions on Windows and Linux; kept portable offline HTML separate.
+
 ## v0.3.3 · Native Waters Instrument Console
 
 - Replaced the desktop browser engine with native Qt/Matplotlib plots backed by NumPy/SciPy; Chromium/WebEngine is excluded from the application.

@@ -2,22 +2,22 @@
 
 Seven complete acquired Waters RAW folders (235.75 MiB, 106 files) provide a protein-calibrant workflow for ADP CCS and a separate small-molecule reference check. They include instrument metadata, function data and existing reader sidecars. No acquisition was synthesized, shortened or stripped to make it smaller.
 
-Open the Waters workspace, choose a demo and a writable output folder, then click **Process & view**. The GUI draws native Matplotlib plots directly from converted MS/IM TXT; this step does not generate HTML. **Export portable HTML** separately creates a single-file Plotly viewer for an external browser. Each demo supplies its own display settings; calibration and analyte tables are optional inputs where supplied.
+Set the wide **Input/Output** rows for your own acquisition, or choose **Data → Examples**, then **Process files**. Examples fill both paths and list RAW before processing; valid unchanged conversions are reused automatically. This does not generate HTML. **Export portable HTML** separately creates a single-file Plotly viewer for an external browser. Each demo supplies its own display settings; calibration and analyte tables are optional inputs where supplied.
 
 | Demo | Real runs | RAW size | What it exercises |
 | --- | ---: | ---: | --- |
 | Protein calibrants → ADP CCS (default) | 5 | 195.07 MiB | Three protein standards establish the curve for two ADP solution conditions; calibration review and 34 target rows |
 | Tune mix + Betaine | 2 | 40.68 MiB | Six Hexakis references, calibration and independent analyte processing |
 
-Choose **Protein calibrants + ADP CCS** for the ADP example. Its three standards populate the calibrant table and the two ADP acquisitions populate the analyte table. Enable CCS after reviewing the reference peaks and the warnings below. Betaine supplies a separate reference check; its single reference point cannot establish the multi-parameter curve used for ADP. Its recorded trap collision energy is also 40 eV, compared with 4 eV for the protein and ADP acquisitions.
+Choose **Protein standards + ADP** for the ADP example. Its three standards populate **Calibration**; selecting an ADP acquisition loads its rows into **Targets** below the spectrum. Build and review the calibration, then **Generate CCS** after considering the warnings below. Betaine supplies a separate reference check; its single reference point cannot establish the multi-parameter curve used for ADP. Its recorded trap collision energy is also 40 eV, compared with 4 eV for the protein and ADP acquisitions.
 
 ## The acquired data
 
-- Protein standards: `20260216_UBQ_DEN_NEW_V1`, `20260216_CYTC_DEN_NEW_V1`, `20260216_MYO_DEN_NEW_V1`.
-- ADP conditions: `20260212_200UM_ADP_1M_EDDA_PH6_0`, `20260212_200UM_ADP_200MM_AMAC`.
-- Small molecules: `20260320_AGILENT_TUNE_MIX_V2`, `20260320_BETAINE_V2`.
+- Protein standards: `ubiquitin.raw`, `cytochrome_c.raw`, `myoglobin.raw`.
+- ADP conditions: `adp_edda.raw`, `adp_amac.raw`.
+- Small molecules: `tune_mix.raw`, `betaine.raw`.
 
-[demo_manifest.json](demo_manifest.json) lists every file, byte count, SHA256 hash, original header and relevant instrument settings. Its paths resolve beside the manifest. Table `raw_path` values resolve beside their CSV, so moving the demo folder preserves the configuration. Some original protein/ADP header dates report 2009 despite later filename prefixes; both are preserved, and the prefixes are not evidence of acquisition chronology.
+[demo_manifest.json](demo_manifest.json) lists every file, byte count, SHA256 hash, original header and relevant instrument settings. Its paths resolve beside the manifest. Table `raw_path` values resolve beside their CSV, so moving the demo folder preserves the configuration. The friendly folder names are display labels; original acquired names, header dates and file hashes remain recorded in the manifest.
 
 ## Recorded execution and calibration limits
 
@@ -38,7 +38,7 @@ Protein standards and ADP share major recorded mobility settings, but their push
 
 ## Larger local production batch
 
-The separately held myoglobin dataset contains 36 complete RAW folders across six solution conditions and three temperatures, with 1-hour and 24-hour measurements. Its RAW payload is 12.53 GiB; existing derived outputs make the whole local folder larger. It remains a local stress dataset to avoid adding many gigabytes to a demo download. Import its RAW folders in the workspace and use [carter_viewer_config.json](carter_viewer_config.json). No CCS curve for that batch is provided here.
+The separately held myoglobin dataset contains 36 complete RAW folders across six solution conditions and three temperatures, with 1-hour and 24-hour measurements. Its RAW payload is 12.53 GiB; existing derived outputs make the whole local folder larger. It remains a local stress dataset to avoid adding many gigabytes to a demo download. Import its RAW folders in the workspace and use [viewer_config.json](viewer_config.json). No CCS curve for that batch is provided here.
 
 ## Reproduce the ADP CCS workflow
 
@@ -50,21 +50,21 @@ python -m deconvovo.imms_plot -i output/demo-adp-converted -o output/demo-adp-ht
 python -m deconvovo.imms_ccs_calibrate -o output/demo-adp-ccs --data-dir output/demo-adp-converted --calibrant-csv examples/production/protein_adp/calibrants.csv --analyte-csv examples/production/protein_adp/analytes.csv
 ```
 
-The GUI uses **Process & view** for conversion and native viewing, with **Calibrate & apply** or the CCS checkbox for the optional analysis. The HTML command above is an explicit export; the GUI provides **Export portable HTML** for that route. A Python installation is needed for these source commands; compiled applications bundle their runtime.
+The GUI's **Process files** converts RAW and opens native plots. The **Calibration** tab builds or loads a reviewed curve and **Generate CCS** calculates CCS for the current acquisition. The HTML command above is an explicit export; the GUI provides **Export portable HTML** for that route. A Python installation is needed for these source commands; compiled applications bundle their runtime.
 
 ## Betaine acquisition: 1000–2000 m/z detail
 
-In **Load real demo**, choose **Betaine · 1000–2000 m/z detail**, select a writable output folder, then process/view. This display preset opens the single complete Betaine acquisition. It supplies no CCS calibration; use the protein-calibrant example above for ADP CCS.
+In **Data → Examples**, choose **Betaine**, then **Process files** and select its acquisition for native viewing. This display preset opens the single complete Betaine acquisition. It supplies no CCS calibration; use the protein-calibrant example above for ADP CCS.
 
-The [detail config](small_molecule/betaine_1000_2000_viewer_config.json) starts the native plot at 1000–2000 m/z and 4–12 ms, so the heatmap and linked profiles use that region's signal range. Native X/Y fields can widen directly from the full TXT data. The same configuration can be used for the separate HTML export, whose baked mass domain requires regeneration to widen. Cube-root display intensity, 6400 mass bins and native drift bins reveal the weaker signal. Light 0.1 Da and 0.07 ms heatmap smoothing improves visibility; the drift profile is unsmoothed. The acquired values remain unchanged.
+The [detail config](small_molecule/detail_view.json) starts the native plot at 1000–2000 m/z and 4–12 ms, so the heatmap and linked profiles use that region's signal range. Native X/Y fields can widen directly from the full TXT data. The same configuration can be used for the separate HTML export, whose baked mass domain requires regeneration to widen. Cube-root display intensity, 6400 mass bins and native drift bins reveal the weaker signal. Light 0.1 Da and 0.07 ms heatmap smoothing improves visibility; the drift profile is unsmoothed. The acquired values remain unchanged.
 
-![Offline HTML preview of measured high-m/z detail from the Betaine acquisition](preview/betaine_1000_2000_offline_viewer.png)
+![Native offline preview of measured high-m/z detail from the Betaine acquisition](preview/betaine_detail.png)
 
 These high-mass features are measured in the Betaine acquisition, but their chemical identities are unassigned. This view does not identify them as the Betaine ion near 118 m/z; the existing overview remains available to inspect that region.
 
 From source, generate the separate portable HTML display:
 
 ```bash
-python -m deconvovo.waters_convert examples/production/small_molecule/raw/20260320_BETAINE_V2.raw -o output/demo-betaine-converted --fn 1 --ms-bin 0 --im-bin 0
-python -m deconvovo.imms_plot -i output/demo-betaine-converted -o output/demo-betaine-detail-html --raw-dir examples/production/small_molecule/raw/20260320_BETAINE_V2.raw --config examples/production/small_molecule/betaine_1000_2000_viewer_config.json
+python -m deconvovo.waters_convert examples/production/small_molecule/raw/betaine.raw -o output/demo-betaine-converted --fn 1 --ms-bin 0 --im-bin 0
+python -m deconvovo.imms_plot -i output/demo-betaine-converted -o output/demo-betaine-detail-html --raw-dir examples/production/small_molecule/raw/betaine.raw --config examples/production/small_molecule/detail_view.json
 ```

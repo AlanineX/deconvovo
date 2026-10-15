@@ -27,7 +27,7 @@ def _resolve_inputs(inputs: list[str]) -> tuple[Path, list[Path]]:
         elif p.name.endswith("_ms.txt"):
             ms_files.append(p)
         elif p.name.endswith("_im.txt"):
-            ms = p.parent / p.name.replace("_im.txt", "_ms.txt")
+            ms = p.parent / (p.name.removesuffix("_im.txt") + "_ms.txt")
             if ms.exists():
                 ms_files.append(ms)
     ms_files = sorted(set(ms_files))
@@ -56,6 +56,9 @@ def _plot_one_run(args: dict) -> dict:
         plot_im_data(im_file, ms_file, run_name, out_dir,
                      pusher_us=args.get("pusher_us"),
                      config_path=args.get("config_path"))
+        html = out_dir / f"{run_name}_2d_imms.html"
+        if not html.is_file() or html.stat().st_size == 0:
+            raise RuntimeError("No nonempty HTML output was generated")
         result["status"].append("IM")
     except Exception as e:
         result["status"].append(f"ERROR: {e}")
@@ -71,11 +74,13 @@ def run(inputs, out_dir: Path, skip_existing: bool = False,
     if isinstance(inputs, (str, Path)):
         inputs = [str(inputs)]
     data_dir, ms_files = _resolve_inputs(list(inputs))
+    if not ms_files:
+        raise FileNotFoundError(f"No *_ms.txt input files found in {data_dir}")
     print(f"  {len(ms_files)} runs from {data_dir}")
 
     pusher_cache = {}
     for ms_file in ms_files:
-        rn = ms_file.stem.replace("_ms", "")
+        rn = ms_file.stem.removesuffix("_ms")
         pp = find_pusher_for_run(data_dir, rn, raw_dir)
         if pp is not None:
             pusher_cache[rn] = pp
@@ -91,7 +96,7 @@ def run(inputs, out_dir: Path, skip_existing: bool = False,
 
     run_args = []
     for ms_file in ms_files:
-        run_name = ms_file.stem.replace("_ms", "")
+        run_name = ms_file.stem.removesuffix("_ms")
         html_out = out_dir / f"{run_name}_2d_imms.html"
         if skip_existing and html_out.exists() and html_out.stat().st_size > 0:
             continue

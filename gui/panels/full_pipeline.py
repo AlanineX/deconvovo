@@ -119,6 +119,13 @@ class FullPipelinePanel(QWidget):
             "analyte": self.chk_analyte.isChecked(),
         }
 
+        if not any(steps.values()):
+            self._log.log("Select at least one pipeline step.", "warning")
+            return
+        if steps["analyte"] and not steps["ccs"]:
+            self._log.log("Enable CCS Calibration to compute analyte CCS in the full pipeline.", "warning")
+            return
+
         if steps["ccs"] and not cal_csv:
             self._log.log("CCS calibration requires a calibrant CSV.", "warning")
             return
@@ -163,12 +170,15 @@ class FullPipelinePanel(QWidget):
             if steps["html"]:
                 self._log._sig.message.emit("Step 2: Generating HTML viewers...", "accent")
                 from deconvovo.imms_plot import run as plot_run
-                plot_run(
+                plot_results = plot_run(
                     data_dir, out,
                     skip_existing=True,
                     raw_dir=Path(raw_dir),
                     n_workers=workers,
                 )
+                errors = [r for r in plot_results if any("ERROR" in s for s in r.get("status", []))]
+                if errors:
+                    raise RuntimeError("HTML generation failed for: " + ", ".join(r["run_name"] for r in errors))
 
             # Step 3: CCS calibration (+ analytes)
             if steps["ccs"] and cal_csv:

@@ -119,7 +119,12 @@ class CcsCalibrationPanel(QWidget):
             self._log.log("Need at least 3 calibrant rows.", "warning")
             return
         required = {"name", "mw", "z", "mz", "ccs", "raw_path"}
-        missing = required - set(df.columns)
+        from deconvovo.imms_ccs_calibrate import normalize_calibrant_columns
+        try:
+            missing = required - set(normalize_calibrant_columns(df).columns)
+        except ValueError as error:
+            self._log.log(str(error), "error")
+            return
         if missing:
             self._log.log(f"Missing columns: {missing}", "error")
             return

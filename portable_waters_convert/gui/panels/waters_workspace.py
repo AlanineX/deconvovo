@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import sys
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import QStandardPaths, Qt, QTimer, QUrl
+from PySide6.QtCore import QSignalBlocker, QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
@@ -21,7 +23,8 @@ from PySide6.QtWidgets import (
 
 from gui.panels.ccs_analyte import CcsAnalytePanel
 from gui.panels.ccs_calibrate import CcsCalibrationPanel
-from gui.panels.html_viewer import HtmlViewerPanel
+from gui.panels.ccs_workbench import CcsWorkbench
+from gui.panels.html_viewer import HtmlViewerPanel, _load_config
 from gui.theme import ERROR, SUCCESS, TEXT_DIM, WARNING
 from gui.widgets.file_picker import DirPicker
 from gui.widgets.log_panel import LogPanel
@@ -47,6 +50,8 @@ def _demo_manifest() -> Path | None:
 
 def discover_runs(source: Path | None, out_dir: Path | None = None) -> list[dict]:
     """Inspect run names and file presence without loading spectral arrays."""
+    if source is not None and not source.exists():
+        return []
     rows: dict[str, dict] = {}
     roots = []
     if source and source.exists():
@@ -71,7 +76,8 @@ def discover_runs(source: Path | None, out_dir: Path | None = None) -> list[dict
                     continue
                 record = rows.setdefault(name, {"run_name": name})
                 if file.stat().st_size:
-                    record[key] = file
+                    if key not in record or (out_dir is not None and root == out_dir / "_converted"):
+                        record[key] = file
     if out_dir and out_dir.is_dir():
         for file in sorted(out_dir.glob("*_2d_imms.html")):
             if file.stat().st_size:
@@ -97,11 +103,18 @@ class WatersWorkspacePanel(QWidget):
         self._auto_output = ""
         self._manifest_path = _demo_manifest()
         self._selected_run_title = "No acquisition selected"
+        self._demo_targets = pd.DataFrame()
+        self._demo_target_record = ""
+        self._example_source = ""
+        self._preferred_run_name = None
         self._refresh_view_timer = QTimer(self)
         self._refresh_view_timer.setSingleShot(True)
         self._refresh_view_timer.setInterval(180)
         self._refresh_view_timer.timeout.connect(self._apply_viewer_settings)
         self.viewer_panel = HtmlViewerPanel(log_panel=self._log, parent=self)
+        self._axis_config_ranges = deepcopy(self.viewer_panel._cfg.get("initial_view") or {})
+        self._pending_axis_resets: set[str] = set()
+        self._pending_axis_edits: set[str] = set()
         self.calibration_panel = CcsCalibrationPanel(log_panel=self._log, parent=self)
         self.analyte_panel = CcsAnalytePanel(log_panel=self._log, parent=self)
         self.viewer_panel.hide()
@@ -109,36 +122,43 @@ class WatersWorkspacePanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 12)
         layout.setSpacing(12)
-        header = QHBoxLayout()
-        title = QLabel("Waters IM-MS workbench")
-        title.setProperty("title", True)
-        header.addWidget(title, 1)
-        self.queue_summary = QLabel("No inputs loaded")
-        self.queue_summary.setProperty("chip", True)
-        header.addWidget(self.queue_summary, alignment=Qt.AlignVCenter)
+        header = QVBoxLayout()
+        header.setSpacing(6)
+        self.queue_summary = QLabel("No inputs loaded", self)
+        self.queue_summary.hide()
+        self.btn_open_raw = QToolButton(self)
+        self.btn_open_raw.setText("Open data…")
+        self.btn_open_raw.setProperty("secondary", True)
+        self.btn_open_raw.setMinimumHeight(40)
+        self.btn_open_raw.setMinimumWidth(135)
+        self.btn_open_raw.setToolTip("Choose your Waters .raw folder. Conversion and viewing start automatically.")
+        self.btn_open_raw.clicked.connect(self.open_raw)
+        self.btn_open_raw.hide()
         self.btn_convert = self._button("Convert only", self.convert_only)
         self.btn_convert.setToolTip("Create MS/IM tables only. No viewer or CCS CSV is needed.")
         header.addWidget(self.btn_convert)
-        self.btn_run = QPushButton("Process && view")
+        self.btn_convert.hide()
+        self.btn_run = self._button("View", self.process_and_view)
         self.btn_run.setMinimumHeight(40)
-        self.btn_run.setMinimumWidth(150)
-        self.btn_run.clicked.connect(self.process_and_view)
+        self.btn_run.setMinimumWidth(80)
         header.addWidget(self.btn_run)
+        self.btn_run.hide()
         layout.addLayout(header)
 
         self.console_splitter = QSplitter(Qt.Horizontal)
         self.console_splitter.setChildrenCollapsible(False)
         self.console_splitter.setHandleWidth(8)
         self._build_acquisition_browser()
+        header.insertWidget(0, self.pick_source)
+        header.insertWidget(1, self.pick_out)
         self._build_plot_workspace()
         self._build_inspector()
-        self.tabs.currentChanged.connect(self._review_layout_changed)
         self.console_splitter.setStretchFactor(0, 0)
         self.console_splitter.setStretchFactor(1, 1)
         self.console_splitter.setStretchFactor(2, 0)
         self.console_splitter.setSizes([250, 700, 300])
         layout.addWidget(self.console_splitter, 1)
-        self.job_status = QLabel("Choose an acquisition folder or load a real demo to begin.")
+        self.job_status = QLabel("Choose an Input RAW folder, or an example.")
         self.job_status.setWordWrap(True)
         self.job_status.setProperty("subtitle", True)
         layout.addWidget(self.job_status)
@@ -148,19 +168,29 @@ class WatersWorkspacePanel(QWidget):
         self.job_progress.setTextVisible(False)
         layout.addWidget(self.job_progress)
         self._load_demo_choices()
-        self.pick_source.path_changed.connect(self._source_changed)
-        self.pick_out.path_changed.connect(self._paths_changed)
+        for picker, callback in ((self.pick_source, self._source_changed), (self.pick_out, self._paths_changed)):
+            picker.path_changed.connect(lambda _text, field=picker, commit=callback:
+                                        commit() if not field.line.isModified() else None)
+            picker.line.editingFinished.connect(lambda field=picker, commit=callback:
+                                                self._commit_path(field, commit))
         self.calibration_panel.pick_csv.path_changed.connect(self._sync_ccs_paths)
         self.combo_method.currentTextChanged.connect(self._paths_changed)
+        for control in (self.spin_func, self.spin_ms_bin, self.spin_im_bin):
+            control.valueChanged.connect(self.reload_runs)
         self.calibration_panel.table.data_changed.connect(self._update_ccs_cards)
         self.analyte_panel.table.data_changed.connect(self._update_ccs_cards)
         self.calibration_panel.pick_csv.path_changed.connect(self._update_ccs_cards)
         self.analyte_panel.pick_ana.path_changed.connect(self._update_ccs_cards)
         controls = [control for kind in (QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox)
-                    for control in self._settings_group.findChildren(kind)] + self.display_controls + self.range_controls
+                    for control in self._settings_group.findChildren(kind)] + self.display_controls
+        controls = [control for control in controls if control not in self.range_controls]
         for control in controls:
             signal = control.currentIndexChanged if isinstance(control, QComboBox) else control.toggled if isinstance(control, QCheckBox) else control.valueChanged
             signal.connect(lambda *_: self._refresh_view_timer.start())
+        for name, check, lo, hi in self._axis_widgets():
+            for control in (check, lo, hi):
+                signal = control.toggled if isinstance(control, QCheckBox) else control.valueChanged
+                signal.connect(lambda *_args, name=name: self._axis_range_edited(name))
         self.viewer_panel.presets_editor.textChanged.connect(self._refresh_view_timer.start)
         self.reload_runs()
 
@@ -180,52 +210,50 @@ class WatersWorkspacePanel(QWidget):
         scroll.setWidget(content)
         return scroll
 
-    def _compact_picker(self, picker, caption, layout):
-        label = QLabel(caption)
-        label.setProperty("subtitle", True)
-        label.setProperty("controlLabel", True)
-        layout.addWidget(label)
-        picker.layout().itemAt(0).layout().itemAt(0).widget().hide()
+    def _compact_picker(self, picker):
+        picker.layout().itemAt(0).layout().itemAt(0).widget().setFixedWidth(48)
         button = picker.findChild(QPushButton)
         button.setText("…")
-        button.setFixedWidth(32)
+        button.setFixedWidth(28)
         button.setStyleSheet("padding: 0;")
         button.setToolTip(picker._title)
         picker.line.setMinimumWidth(0)
-        picker.line.setToolTip(caption)
-        layout.addWidget(picker)
+        picker.line.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
 
     def _build_acquisition_browser(self):
         self.browser_panel = QWidget()
         self.browser_panel.setMinimumWidth(220)
-        self.browser_panel.setMaximumWidth(330)
         column = QVBoxLayout(self.browser_panel)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(12)
-        self.sources_group = QGroupBox("BATCH SOURCE")
-        paths = QVBoxLayout(self.sources_group)
+        self.sources_group = QGroupBox("Data")
+        paths = QFormLayout(self.sources_group)
         paths.setContentsMargins(0, 0, 0, 0)
         paths.setSpacing(6)
+        paths.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        paths.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.combo_demo = QComboBox()
         self.combo_demo.setMinimumWidth(0)
+        self.combo_demo.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.combo_demo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo_demo.setMinimumContentsLength(12)
-        demo = QHBoxLayout()
-        demo.addWidget(self.combo_demo, 1)
-        self.btn_demo = self._button("Load", self._load_demo)
+        self.combo_demo.currentIndexChanged.connect(self._example_selected)
+        paths.addRow("Examples", self.combo_demo)
+        self.btn_demo = self._button("Open", self.open_example)
         self.btn_demo.setToolTip("Load complete real acquisitions and their matching settings")
         self.btn_demo.setProperty("compact", True)
         self.btn_demo.setStyleSheet("padding: 6px;")
         self.btn_demo.setFixedWidth(72)
-        demo.addWidget(self.btn_demo)
-        paths.addLayout(demo)
-        self.pick_source = DirPicker("Source:", dialog_title="Select a complete Waters .raw folder or parent")
-        self._compact_picker(self.pick_source, "Source folder", paths)
-        self.pick_source.line.setToolTip("Complete .raw folder, a parent containing runs, or a folder of paired converted TXT files")
-        self.btn_text = self._button("Use converted TXT…", self._pick_text)
-        paths.addWidget(self.btn_text)
-        self.pick_out = DirPicker("Output:", dialog_title="Select a writable output folder")
-        self._compact_picker(self.pick_out, "Output folder", paths)
+        self.btn_demo.hide()
+        self.pick_source = DirPicker("Input", dialog_title="Select a complete Waters .raw folder or parent")
+        self._compact_picker(self.pick_source)
+        self.pick_source.line.setToolTip("Complete Waters .raw folder, or a parent containing RAW acquisitions")
+        self.btn_text = self._button("Open TXT…", self._pick_text)
+        self.btn_text.hide()
+        self.pick_out = DirPicker("Output", dialog_title="Select a writable output folder")
+        self._compact_picker(self.pick_out)
+        self.pick_out.line.setToolTip("Chosen automatically; change it if you want a different output folder.")
+        paths.labelForField(self.combo_demo).setMinimumWidth(60)
         column.addWidget(self.sources_group)
 
         runs = QGroupBox("Acquisitions")
@@ -244,17 +272,46 @@ class WatersWorkspacePanel(QWidget):
         self.run_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.run_table.setWordWrap(False)
         self.run_table.setShowGrid(False)
+        self.run_table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.run_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.run_table.verticalHeader().setVisible(False)
-        self.run_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.run_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
-        self.run_table.setColumnWidth(4, 80)
-        self.run_table.verticalHeader().setDefaultSectionSize(55)
+        run_header = self.run_table.horizontalHeader()
+        run_header.setSectionResizeMode(QHeaderView.Interactive)
+        run_header.setStretchLastSection(False)
+        run_header.setMinimumSectionSize(24)
+        self.run_table.setColumnWidth(0, 128)
+        self.run_table.setColumnWidth(4, 78)
+        self.run_table.verticalHeader().setDefaultSectionSize(38)
         self.run_table.setMinimumHeight(110)
         self.run_table.itemSelectionChanged.connect(self._selected_run_changed)
         self.run_table.itemDoubleClicked.connect(lambda _item: self.open_viewer())
         runs_layout.addWidget(self.run_table, 1)
-        self.btn_reload = self._button("Reload existing results", self.reload_runs)
-        runs_layout.addWidget(self.btn_reload)
+        controls = QHBoxLayout()
+        controls.setSpacing(6)
+        self.btn_reload = self._button("↻", self.reload_runs)
+        self.btn_reload.setAccessibleName("Refresh acquisitions")
+        self.btn_reload.setToolTip("Refresh acquisitions from Input, including added or deleted RAW folders.")
+        self.btn_reload.setFixedWidth(28)
+        self.btn_reload.setProperty("compact", True)
+        self.btn_reload.setStyleSheet("padding: 4px 0;")
+        controls.addWidget(self.btn_reload)
+        self.btn_process = self._button("Process files", self.process_and_view)
+        self.btn_process.setProperty("secondary", False)
+        self.btn_process.setProperty("primary", True)
+        self.btn_process.setProperty("compact", True)
+        self.btn_process.setToolTip("Convert the listed RAW acquisitions and view one acquisition at a time.")
+        controls.addWidget(self.btn_process, 1)
+        self.spin_jobs = self.viewer_panel.spin_workers
+        self.spin_jobs.setRange(1, os.cpu_count() or 1)
+        self.spin_jobs.setValue(1)
+        self.spin_jobs.setSuffix(" CPU")
+        self.spin_jobs.setAccessibleName("Maximum CPU cores")
+        self.spin_jobs.setToolTip("Maximum concurrent RAW conversions. Lower this limit to use less CPU and memory.")
+        self.spin_jobs.setMaximumWidth(72)
+        self.spin_jobs.setMinimumWidth(0)
+        self.spin_jobs.setStyleSheet("padding: 4px 2px;")
+        controls.addWidget(self.spin_jobs)
+        runs_layout.addLayout(controls)
         column.addWidget(runs, 1)
         self.console_splitter.addWidget(self.browser_panel)
 
@@ -272,28 +329,25 @@ class WatersWorkspacePanel(QWidget):
         self.selected_run_header = QWidget()
         selected = QHBoxLayout(self.selected_run_header)
         selected.setContentsMargins(0, 0, 0, 0)
-        labels = QVBoxLayout()
-        heading = QLabel("SELECTED ACQUISITION")
-        heading.setProperty("eyebrow", True)
-        labels.addWidget(heading)
         self.selected_run_label = QLabel(self._selected_run_title)
+        self.selected_run_label.setObjectName("acquisitionTitle")
         self.selected_run_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.selected_run_label.setProperty("section", True)
-        labels.addWidget(self.selected_run_label)
+        selected.addWidget(self.selected_run_label, 1)
         self.selected_state_label = QLabel("Select a run in the acquisition browser")
         self.selected_state_label.setProperty("subtitle", True)
-        labels.addWidget(self.selected_state_label)
-        selected.addLayout(labels, 1)
+        self.selected_state_label.hide()
         self.btn_viewer = self._button("Reset view", self.open_viewer)
-        self.btn_viewer.setToolTip("Restore the selected numeric ranges in the native plot.")
+        self.btn_viewer.setToolTip("Show the full acquired m/z and drift ranges.")
         selected.addWidget(self.btn_viewer)
         self.btn_export_view = QToolButton()
-        self.btn_export_view.setText("Export current view")
+        self.btn_export_view.setText("Export")
         self.btn_export_view.setProperty("secondary", True)
-        self.btn_export_view.setMinimumWidth(QFontMetrics(self.btn_export_view.font()).horizontalAdvance("Export current view") + 36)
+        self.btn_export_view.setMinimumWidth(QFontMetrics(self.btn_export_view.font()).horizontalAdvance("Export") + 36)
         self.btn_export_view.setStyleSheet("padding-right: 20px;")
         self.btn_export_view.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self.btn_export_view)
+        self.capture_actions = []
         for text, key in (
             ("Full plot PNG", "full_png"), ("2D PNG", "heatmap_png"),
             ("m/z PNG", "mz_png"), ("Drift PNG", "drift_png"),
@@ -301,6 +355,10 @@ class WatersWorkspacePanel(QWidget):
         ):
             action = menu.addAction(text)
             action.triggered.connect(lambda _checked=False, kind=key: self.export_current_view(kind))
+            self.capture_actions.append(action)
+        menu.addSeparator()
+        self.action_export_html = menu.addAction("Portable HTML…", self.export_portable_html)
+        self.action_output_folder = menu.addAction("Open output folder", self.open_output_folder)
         self.btn_export_view.setMenu(menu)
         self.btn_export_view.setToolTip("Export the current zoom, bins, scaling, and filters. The 2D CSV contains displayed transformed values.")
         selected.addWidget(self.btn_export_view)
@@ -309,12 +367,16 @@ class WatersWorkspacePanel(QWidget):
         self.viewer_widget = WatersViewerWidget(self)
         self.viewer_widget.ready_changed.connect(lambda _ready: self._update_open_buttons())
         self.viewer_widget.export_finished.connect(self._current_export_finished)
-        self.tabs.addTab(self.viewer_widget, "Local viewer · offline")
+        self.viewer_widget.render_finished.connect(self._sync_axis_ranges)
+        self.viewer_widget.ranges_reset.connect(self._viewer_ranges_reset)
+        self.viewer_widget.target_focused.connect(self._target_focused)
+        self.tabs.addTab(self.viewer_widget, "Spectrum")
         self._build_ccs_page()
+        self.tabs.currentChanged.connect(self._viewer_actions_context)
         plot_layout.addWidget(self.tabs, 1)
         column.addWidget(plot_card, 1)
 
-        output = QGroupBox("Batch outputs")
+        output = QGroupBox("Files")
         self.output_card = output
         output_layout = QVBoxLayout(output)
         output_layout.setContentsMargins(0, 0, 0, 0)
@@ -334,6 +396,7 @@ class WatersWorkspacePanel(QWidget):
         row.addWidget(self.btn_export)
         output_layout.addLayout(row)
         column.addWidget(output)
+        output.hide()
         self.console_splitter.addWidget(self.plot_panel)
 
     def _build_inspector(self):
@@ -341,29 +404,29 @@ class WatersWorkspacePanel(QWidget):
         column = QVBoxLayout(content)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(12)
-        self.display_group = QGroupBox("Viewer defaults")
+        self.display_group = QGroupBox("Display")
+        self.display_group.setObjectName("displayControls")
         display = QVBoxLayout(self.display_group)
         display.setContentsMargins(0, 0, 0, 0)
-        note = QLabel("Controls update the native plots. Export portable HTML saves a separate offline viewer.")
-        note.setWordWrap(True)
-        note.setProperty("subtitle", True)
-        display.addWidget(note)
         self._settings_group = next(group for group in self.viewer_panel.findChildren(QGroupBox)
                                     if group.title() == "Viewer Configuration")
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(7)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
         controls = [
             ("m/z bins", self.viewer_panel.spin_mzbins),
             ("Drift bins", self.viewer_panel.spin_driftbins),
             ("MS display", self.viewer_panel.combo_ms_mode),
-            ("Intensity", self.viewer_panel.combo_zscale),
+            ("2D intensity", self.viewer_panel.combo_zscale),
             ("Colour map", self.viewer_panel.combo_cmap),
             ("2D smoothing", self.viewer_panel.combo_smooth2d),
-            ("Noise cutoff (%)", self.viewer_panel.spin_noise2d),
-            ("Cutoff fade (%)", self.viewer_panel.spin_denoise),
+            ("Noise cutoff", self.viewer_panel.spin_noise2d),
+            ("Cutoff fade", self.viewer_panel.spin_denoise),
         ]
         self.display_controls = [control for _, control in controls]
+        self.viewer_panel.combo_zscale.setToolTip("Transform only the 2D intensity. The 1D profiles are not smoothed or transformed by this control.")
         self.viewer_panel.spin_denoise.setSpecialValueText("Off")
         for i, (caption, control) in enumerate(controls):
             for form in self._settings_group.findChildren(QFormLayout):
@@ -377,6 +440,7 @@ class WatersWorkspacePanel(QWidget):
             label.setProperty("controlLabel", True)
             grid.addWidget(label, (i // 2) * 2, i % 2)
             control.setMinimumWidth(0)
+            control.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             if isinstance(control, QComboBox):
                 control.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
                 control.setMinimumContentsLength(6)
@@ -385,6 +449,7 @@ class WatersWorkspacePanel(QWidget):
         column.addWidget(self.display_group)
 
         self.range_group = QGroupBox("Axis ranges")
+        self.range_group.setObjectName("axisRanges")
         ranges = QGridLayout(self.range_group)
         ranges.setContentsMargins(0, 0, 0, 0)
         ranges.setHorizontalSpacing(10)
@@ -410,13 +475,14 @@ class WatersWorkspacePanel(QWidget):
                 label = QLabel(text)
                 label.setProperty("controlLabel", True)
                 ranges.addWidget(label, axis * 3 + 1, side)
+                spin.setMinimum(-1000000)  # Mouse navigation can expose empty margins below zero.
                 spin.setMinimumWidth(0)
                 spin.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
                 ranges.addWidget(spin, axis * 3 + 2, side)
             self.range_controls.extend((check, lo, hi))
         column.addWidget(self.range_group)
 
-        self.ccs_card = QGroupBox("Calibration + analytes")
+        self.ccs_card = QGroupBox("Optional CCS")
         ccs = QVBoxLayout(self.ccs_card)
         ccs.setContentsMargins(0, 0, 0, 0)
         cards = QHBoxLayout()
@@ -425,21 +491,32 @@ class WatersWorkspacePanel(QWidget):
         for button in (self.btn_review_cal, self.btn_review_ana):
             button.setMinimumHeight(74)
             cards.addWidget(button, 1)
+            button.hide()
         ccs.addLayout(cards)
         self.chk_ccs = QCheckBox("Include CCS when processing")
         ccs.addWidget(self.chk_ccs)
+        self.chk_ccs.hide()
+        self.btn_calibration = self._button("Calibration…", self.show_ccs_review)
+        ccs.addWidget(self.btn_calibration)
+        self.calibration_status = QLabel("No calibration loaded")
+        self.calibration_status.setWordWrap(True)
+        self.calibration_status.setProperty("subtitle", True)
+        ccs.addWidget(self.calibration_status)
         self.demo_description = QLabel("Load calibrant and analyte tables in CCS review.")
         self.demo_description.setWordWrap(True)
         self.demo_description.setProperty("subtitle", True)
         ccs.addWidget(self.demo_description)
-        column.addWidget(self.ccs_card)
+        self.demo_description.hide()
+        self.ccs_card.setParent(self)
+        self.ccs_card.hide()
 
         self.btn_advanced = QToolButton()
-        self.btn_advanced.setText("Advanced processing & defaults")
+        self.btn_advanced.setText("Settings")
         self.btn_advanced.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_advanced.setArrowType(Qt.RightArrow)
         self.btn_advanced.setCheckable(True)
-        column.addWidget(self.btn_advanced)
+        self.btn_advanced.setParent(self)
+        self.btn_advanced.hide()
         self.advanced = QWidget()
         advanced_layout = QVBoxLayout(self.advanced)
         advanced_layout.setContentsMargins(0, 0, 0, 0)
@@ -463,7 +540,7 @@ class WatersWorkspacePanel(QWidget):
         form.addRow("IM bin width:", self.spin_im_bin)
         form.addRow(self.chk_reuse)
         advanced_layout.addWidget(extraction)
-        self._settings_group.setTitle("Additional viewer defaults")
+        self._settings_group.setTitle("More display options")
         self.viewer_panel.layout().removeWidget(self._settings_group)
         for form in self._settings_group.findChildren(QFormLayout):
             form.setRowWrapPolicy(QFormLayout.WrapAllRows)
@@ -478,7 +555,6 @@ class WatersWorkspacePanel(QWidget):
         self._settings_group.setMinimumHeight(350)
         advanced_layout.addWidget(self._settings_group)
         self.viewer_panel.chk_skip.hide()
-        self.viewer_panel.spin_workers.hide()
         for label in self._settings_group.findChildren(QLabel):
             if label.text() == "Workers:":
                 label.hide()
@@ -489,9 +565,16 @@ class WatersWorkspacePanel(QWidget):
                 button.clicked.connect(self._save_defaults)
                 self.btn_save_defaults = button
         self.advanced.hide()
+        self.advanced.setParent(self)
         self.btn_advanced.toggled.connect(self._toggle_advanced)
-        column.addWidget(self.advanced)
         column.addStretch()
+        self.ccs_profile_group = QGroupBox("CCS profile")
+        ccs_profile_layout = QVBoxLayout(self.ccs_profile_group)
+        ccs_profile_layout.setContentsMargins(0, 0, 0, 0)
+        ccs_profile_layout.addWidget(self.viewer_widget.ccs_plot)
+        self.ccs_profile_group.hide()
+        self.viewer_widget.ccs_profile_visible.connect(self.ccs_profile_group.setVisible)
+        column.addWidget(self.ccs_profile_group)
         self.inspector_scroll = self._scroll(content)
         self.inspector_scroll.setMinimumWidth(285)
         self.inspector_scroll.setMaximumWidth(370)
@@ -501,7 +584,7 @@ class WatersWorkspacePanel(QWidget):
         content = QWidget()
         page = QVBoxLayout(content)
         page.setContentsMargins(8, 8, 8, 8)
-        help_text = QLabel("Review tables and calibration together. Shared batch paths feed the analysis automatically; calibrants must match instrument conditions.")
+        help_text = QLabel("Load calibrant and analyte tables. Use references measured under matching instrument conditions.")
         help_text.setWordWrap(True)
         page.addWidget(help_text)
         self.ccs_demo_description = QLabel("")
@@ -553,24 +636,18 @@ class WatersWorkspacePanel(QWidget):
         self.calibration_panel.hide()
         self.analyte_panel.hide()
         page.addWidget(self.ccs_editors, 1)
-        self.tabs.addTab(content, "CCS review")
-
-    def _review_layout_changed(self, index):
-        """Use the workbench width for CSV editing; restore the console for viewing."""
-        if index == 1:
-            self._viewer_splitter_sizes = self.console_splitter.sizes()
-            self.browser_panel.hide()
-            self.inspector_scroll.hide()
-            self.selected_run_header.hide()
-            self.output_card.hide()
-        else:
-            self.browser_panel.show()
-            self.inspector_scroll.show()
-            self.selected_run_header.show()
-            self.output_card.show()
-            sizes = getattr(self, "_viewer_splitter_sizes", None)
-            if sizes:
-                self.console_splitter.setSizes(sizes)
+        self._legacy_ccs_page = content
+        content.setParent(self)
+        content.hide()
+        self.ccs_workbench = CcsWorkbench(self._log, self)
+        self.ccs_workbench.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.ccs_workbench.setMinimumWidth(0)
+        self.ccs_workbench.busy_changed.connect(self._ccs_busy_changed)
+        self.ccs_workbench.calibration_changed.connect(self._calibration_changed)
+        self.ccs_workbench.targets_applied.connect(self._targets_applied)
+        self.viewer_widget.targets_changed.connect(self.ccs_workbench.set_targets)
+        self.calibration_scroll = self._scroll(self.ccs_workbench)
+        self.tabs.addTab(self.calibration_scroll, "Calibration")
 
     def show_ccs_review(self, index=0):
         self.tabs.setCurrentIndex(1)
@@ -584,27 +661,80 @@ class WatersWorkspacePanel(QWidget):
         self.btn_review_cal.setText(f"Calibrants\n{self.calibration_panel.table.table.rowCount()} references\nReview →")
         self.btn_review_ana.setText(f"Analytes\n{self.analyte_panel.table.table.rowCount()} targets\nReview →")
 
+    def _calibration_changed(self, calibration):
+        self.viewer_widget.targets_editor.set_ccs_fields_visible(
+            calibration is not None or self.ccs_workbench._preview_calibration is not None)
+        self.viewer_widget.invalidate_target_results()
+        if not hasattr(self, "calibration_status"):
+            return
+        if calibration:
+            self.calibration_status.setText(f"{calibration.get('n_points', 0)} references · R² {calibration.get('r2_lnln', 0):.4f}")
+        else:
+            self.calibration_status.setText("No calibration loaded")
+
+    def _ccs_busy_changed(self, _busy):
+        if not _busy:
+            self.ccs_workbench.wait_for_worker()
+        self._update_interaction_state()
+
+    def _targets_applied(self, result):
+        self.viewer_widget.update_target_results(result.get("analyte_summary", []), result.get("native_profiles", []))
+        self.job_status.setText(self.ccs_workbench.status.text())
+        self.job_status.setStyleSheet(self.ccs_workbench.status.styleSheet())
+
+    @staticmethod
+    def _sheet_paths(frame, csv_path):
+        frame = frame.copy(deep=True)
+        if csv_path and "raw_path" in frame:
+            def resolve(value):
+                if pd.isna(value) or not str(value).strip():
+                    return ""
+                path = local_path(value)
+                return str((csv_path.parent / path).resolve() if not path.is_absolute() else path.resolve())
+            frame["raw_path"] = frame["raw_path"].map(resolve)
+        return frame
+
+    def _set_acquisition_targets(self, record):
+        key = str(Path(record.get("raw") or record.get("im") or record["run_name"]).resolve())
+        if self._demo_targets.empty or key == self._demo_target_record:
+            return
+        self._demo_target_record = key
+        frame = self._demo_targets
+        if "raw_path" in frame and record.get("raw"):
+            frame = frame[frame["raw_path"] == str(Path(record["raw"]).resolve())]
+        self.viewer_widget.targets_editor.set_context(record.get("raw"), None)
+        self.viewer_widget.targets_editor.set_targets(frame)
+
     def _selected_run_changed(self):
         self._update_open_buttons()
         index = self.run_table.currentRow()
         if not 0 <= index < len(self._rows):
             self._selected_run_title = "No acquisition selected"
             self.selected_state_label.setText("Select a run in the acquisition browser")
-            self.viewer_widget.clear("Select a batch or acquisition folder, then Process & view to inspect measured data.")
+            self.viewer_widget.clear("Choose an Input folder, or an example.")
+            self.ccs_workbench.set_acquisition(None, None)
+            self.ccs_workbench.set_targets(pd.DataFrame())
         else:
             record = self._rows[index]
             self._selected_run_title = record["run_name"]
             self.selected_state_label.setText(self.run_table.item(index, 4).text())
             source = Path(self.pick_source.path()) if self.pick_source.path() else None
             try:
-                config = self.viewer_panel.current_config()
+                config = self._viewer_config()
             except ValueError:
-                config = self.viewer_panel._cfg
+                config = deepcopy(self.viewer_panel._cfg)
+                config["initial_view"] = deepcopy(self._axis_config_ranges)
+            self._pending_axis_resets.clear()
+            self._pending_axis_edits.clear()
             self.viewer_widget.set_run(record, config, source)
+            data_dir = Path(record["im"]).parent if record.get("im") else None
+            self.ccs_workbench.set_acquisition(record, data_dir)
+            self._set_acquisition_targets(record)
+            self.ccs_workbench.set_targets(self.viewer_widget.get_targets())
         self._update_selected_title()
 
     def export_portable_html(self, destination=None):
-        if self._busy:
+        if self.is_busy:
             return None
         index = self.run_table.currentRow()
         if not 0 <= index < len(self._rows) or not all(self._rows[index].get(key) for key in ("ms", "im")):
@@ -634,7 +764,8 @@ class WatersWorkspacePanel(QWidget):
         self._job_files = tempfile.TemporaryDirectory(prefix="deconvovo-waters-export-")
         try:
             config_path = Path(self._job_files.name) / "viewer_config.json"
-            config_path.write_text(json.dumps(self.viewer_panel.current_config(), indent=2), encoding="utf-8")
+            config = self.viewer_panel.current_config() if self.viewer_widget.is_ready else self._viewer_config()
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
         except (OSError, ValueError) as error:
             self._cleanup_job_files()
             self._problem(str(error))
@@ -652,9 +783,11 @@ class WatersWorkspacePanel(QWidget):
         return destination
 
     def export_current_view(self, kind):
+        if self.is_busy:
+            return None
         try:
             self._refresh_view_timer.stop()
-            self.viewer_widget.apply_config(self.viewer_panel.current_config())
+            self._apply_current_view_settings(self._viewer_config())
             return self.viewer_widget.export_current(kind)
         except (OSError, ValueError) as error:
             self._problem(str(error))
@@ -713,7 +846,10 @@ class WatersWorkspacePanel(QWidget):
                 self.run_table.item(index, 3).setText("Offline HTML")
                 self.run_table.item(index, 4).setText("Viewer ready")
                 break
-        self._selected_run_changed()
+        self._update_open_buttons()
+        index = self.run_table.currentRow()
+        if 0 <= index < len(self._rows):
+            self.selected_state_label.setText(self._rows[index].get("display_status", "Viewer ready"))
         self.job_status.setText(f"Exported one-file offline viewer: {Path(result['path']).name}")
         self.job_status.setStyleSheet(f"color: {SUCCESS};")
         self._log.log(f"Exported portable HTML: {result['path']}", "success")
@@ -731,65 +867,170 @@ class WatersWorkspacePanel(QWidget):
         self.selected_run_label.setToolTip(self._selected_run_title)
         self.selected_run_label.setText(QFontMetrics(self.selected_run_label.font()).elidedText(self._selected_run_title, Qt.ElideRight, max(100, self.selected_run_label.width())))
 
+    def _axis_widgets(self):
+        panel = self.viewer_panel
+        return (
+            ("mz_range", panel.chk_mz_range, panel.spin_mz_min, panel.spin_mz_max),
+            ("drift_range", panel.chk_drift_range, panel.spin_drift_min, panel.spin_drift_max),
+        )
+
+    def _set_viewer_config(self, config):
+        """Load settings without treating programmatic bounds as numeric edits."""
+        blockers = [QSignalBlocker(control) for _, *controls in self._axis_widgets() for control in controls]
+        self.viewer_panel.set_config(config)
+        self._axis_config_ranges = deepcopy(config.get("initial_view") or {})
+        self._pending_axis_resets.clear()
+        self._pending_axis_edits.clear()
+        for _, check, lo, hi in self._axis_widgets():
+            lo.setEnabled(check.isChecked())
+            hi.setEnabled(check.isChecked())
+        del blockers
+        self._refresh_view_timer.stop()
+
+    def _viewer_config(self):
+        """Apply explicit numeric ranges, keeping mouse bounds out of the grid domain."""
+        config = self.viewer_panel.current_config()
+        config["initial_view"] = deepcopy(self._axis_config_ranges)
+        return config
+
+    def _axis_range_edited(self, name):
+        _, check, lo, hi = next(axis for axis in self._axis_widgets() if axis[0] == name)
+        if check.isChecked():
+            if lo.value() >= hi.value():
+                return
+            self._axis_config_ranges[name] = [lo.value(), hi.value()]
+            self._pending_axis_resets.discard(name)
+        else:
+            self._axis_config_ranges[name] = None
+            # A mouse zoom must reset even when the configured bounds were already None.
+            self._pending_axis_resets.add(name)
+        self._pending_axis_edits.add(name)
+        self._refresh_view_timer.start()
+
+    def _sync_axis_ranges(self, snapshot):
+        """Mirror the rendered viewport without triggering a rebin or redraw."""
+        for name, check, lo, hi in self._axis_widgets():
+            if name in self._pending_axis_edits or any(getattr(spin, "_text_edited", False) for spin in (lo, hi)):
+                continue
+            blockers = [QSignalBlocker(control) for control in (check, lo, hi)]
+            for spin, bound in zip((lo, hi), getattr(snapshot, name)):
+                # Keep fine typed text when the render confirms the same numeric value.
+                if spin.value() != round(float(bound), spin.decimals()):
+                    spin.set_view_value(float(bound))
+            check.setChecked(True)
+            lo.setEnabled(True)
+            hi.setEnabled(True)
+            del blockers
+
+    def _viewer_ranges_reset(self, axes):
+        for name in axes:
+            self._axis_config_ranges[name] = None
+            self.viewer_panel._cfg.setdefault("initial_view", {})[name] = None
+        self._pending_axis_edits.difference_update(axes)
+        self._pending_axis_resets.difference_update(axes)
+
+    def _target_focused(self, ranges):
+        for name, bounds in ranges.items():
+            self._axis_config_ranges[name] = list(bounds) if bounds is not None else None
+            self.viewer_panel._cfg.setdefault("initial_view", {})[name] = self._axis_config_ranges[name]
+        self._pending_axis_edits.difference_update(ranges)
+        self._pending_axis_resets.difference_update(ranges)
+
+    def _apply_current_view_settings(self, config):
+        self.viewer_widget.apply_config(config)
+        self._pending_axis_edits.clear()
+        if self._pending_axis_resets:
+            axes = tuple(self._pending_axis_resets)
+            self._pending_axis_resets.clear()
+            self.viewer_widget.reset_view(axes=axes)
+
     def _apply_viewer_settings(self):
         try:
-            config = self.viewer_panel.current_config()
+            config = self._viewer_config()
         except ValueError:
             return
         if hasattr(self.viewer_widget, "apply_config"):
-            self.viewer_widget.apply_config(config)
+            self._apply_current_view_settings(config)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._update_selected_title()
 
     def closeEvent(self, event):
-        if self._busy:
+        if self.is_busy:
             event.ignore()
             return
         self._refresh_view_timer.stop()
+        self.ccs_workbench.close()
+        self.ccs_workbench.wait_for_worker()
         self.viewer_widget.close()
         self.viewer_widget.wait_for_workers()
         super().closeEvent(event)
 
     def _toggle_advanced(self, checked):
-        self.advanced.setVisible(checked)
-        self.btn_advanced.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
+        self.advanced.hide()
 
     def _load_demo_choices(self):
-        self.combo_demo.addItem("Choose a real acquisition demo…", None)
+        self.combo_demo.addItem("Examples…", None)
         if self._manifest_path:
             try:
                 manifest = json.loads(self._manifest_path.read_text(encoding="utf-8"))
                 for profile in manifest.get("profiles", []):
                     if profile.get("bundled", True):
                         self.combo_demo.addItem(profile.get("name", profile.get("label", profile["id"])), profile)
-                index = next((i for i in range(1, self.combo_demo.count()) if self.combo_demo.itemData(i).get("id") == manifest.get("default_profile")), 0)
-                self.combo_demo.setCurrentIndex(index)
             except (OSError, ValueError, KeyError) as error:
                 self._log.log(f"Could not load demo catalog: {error}", "warning")
-        self.btn_demo.setEnabled(self.combo_demo.count() > 1)
+        self.btn_demo.setEnabled(self.combo_demo.currentData() is not None)
         if self.combo_demo.count() == 1:
             self.combo_demo.setItemText(0, "No bundled demo catalog found")
+
+    def _example_selected(self, _index):
+        self.btn_demo.setEnabled(self.combo_demo.currentData() is not None)
+        self.combo_demo.setToolTip(self.combo_demo.currentText())
+        if not self.is_busy and self.combo_demo.currentData() is not None:
+            self._load_demo()
+
+    def open_example(self):
+        if not self.is_busy and self._load_demo():
+            self.process_and_view()
 
     def _load_demo(self):
         profile = self.combo_demo.currentData()
         if not profile or not self._manifest_path:
-            return
+            return False
         base = self._manifest_path.parent
         source = base / profile.get("source", profile.get("input_dir", ""))
+        preferred_raw = None
+        if profile.get("analyte_csv"):
+            csv_path = base / profile["analyte_csv"]
+            try:
+                targets = self._sheet_paths(pd.read_csv(csv_path, encoding="utf-8-sig", keep_default_na=False), csv_path)
+                paths = targets.get("raw_path", pd.Series(dtype=str))
+                first_raw = next((str(path) for path in paths if str(path).strip()), None)
+                if not first_raw:
+                    raise ValueError("Example targets do not specify an acquisition.")
+                preferred_raw = local_path(first_raw)
+            except (OSError, ValueError, pd.errors.ParserError) as error:
+                self._problem(f"Could not load example acquisition: {error}")
+                return False
         if not source.is_dir():
             self._problem(f"Demo acquisition folder is missing: {source}")
-            return
+            return False
+        self._demo_targets = pd.DataFrame()
+        self._demo_target_record = ""
+        self.viewer_widget.targets_editor.set_targets(pd.DataFrame())
         config = profile.get("viewer_config", profile.get("plot_config"))
         try:
             if config:
-                self.viewer_panel.set_config(json.loads((base / config).read_text(encoding="utf-8")))
+                self._set_viewer_config(json.loads((base / config).read_text(encoding="utf-8")))
         except (OSError, ValueError) as error:
             self._problem(f"Could not load demo viewer settings: {error}")
-            return
-        self.pick_source.set_path(str(source.resolve()))
-        self.pick_out.set_path(str(self._default_output(profile.get("id", source.name))))
+            return False
+        self._example_source = str(source.resolve())
+        self._preferred_run_name = preferred_raw.stem if preferred_raw is not None else None
+        self.pick_source.set_path(self._example_source)
+        self._auto_output = str(self._default_output(source.stem if source.suffix.casefold() == ".raw" else profile.get("id", source.name)))
+        self.pick_out.set_path(self._auto_output)
         for picker, key in ((self.calibration_panel.pick_csv, "calibrant_csv"), (self.analyte_panel.pick_ana, "analyte_csv")):
             picker.set_path(str((base / profile[key]).resolve()) if profile.get(key) else "")
         if not profile.get("calibrant_csv"):
@@ -797,6 +1038,15 @@ class WatersWorkspacePanel(QWidget):
         if not profile.get("analyte_csv"):
             self.analyte_panel.table.load_dataframe(pd.DataFrame())
         self.combo_method.setCurrentText(profile.get("method", "direct"))
+        method_index = self.ccs_workbench.combo_method.findData(profile.get("method", "direct"))
+        self.ccs_workbench.combo_method.setCurrentIndex(max(0, method_index))
+        cal_path = self.calibration_panel.table._csv_path
+        if profile.get("calibrant_csv"):
+            self.ccs_workbench.set_references(self.calibration_panel.table.to_dataframe(), cal_path)
+        else:
+            self.ccs_workbench.clear_references(preserve_calibration=True)
+        ana_path = self.analyte_panel.table._csv_path
+        self._demo_targets = self._sheet_paths(self.analyte_panel.table.to_dataframe(), ana_path)
         self.chk_ccs.setChecked(False)
         description = profile.get("description", "")
         if profile.get("id") == "protein_adp":
@@ -813,10 +1063,11 @@ class WatersWorkspacePanel(QWidget):
         self.demo_description.setToolTip(description)
         self.ccs_demo_description.setText(profile.get("description", ""))
         self._update_ccs_cards()
-        self.job_status.setText("Real acquisition demo loaded. Process & view converts the data and opens the native plots.")
+        self.job_status.setText("Example loaded. Choose Process files to convert the listed RAW acquisitions.")
         self.tabs.setCurrentIndex(0)
         self._sync_ccs_paths()
         self.reload_runs()
+        return True
 
     @staticmethod
     def _default_output(name):
@@ -824,12 +1075,63 @@ class WatersWorkspacePanel(QWidget):
         return Path(documents or str(Path.home())) / "DeconVoVo" / "Waters" / name
 
     def _pick_text(self):
+        if self.is_busy:
+            return
         file, _ = QFileDialog.getOpenFileName(self, "Select an existing converted Waters MS or IM file", self.pick_source.path(), "Waters converted TXT (*_ms.txt *_im.txt);;Text files (*.txt)")
         if file:
+            self._prepare_custom_input()
             self.pick_source.set_path(str(Path(file).parent))
+            self.tabs.setCurrentIndex(0)
+            name = Path(file).name.removesuffix("_ms.txt").removesuffix("_im.txt")
+            index = next((i for i, record in enumerate(self._rows) if record["run_name"] == name), None)
+            if index is not None:
+                self.run_table.selectRow(index)
+                self._selected_run_changed()
+
+    def _prepare_custom_input(self):
+        """Keep saved display choices, while removing example-specific ranges and sheets."""
+        config = _load_config()
+        config["initial_view"] = {"mz_range": None, "drift_range": None}
+        self._set_viewer_config(config)
+        self.combo_demo.setCurrentIndex(0)
+        self.chk_ccs.setChecked(False)
+        self._demo_targets = pd.DataFrame()
+        self._demo_target_record = ""
+        if self._manifest_path:
+            demo_root = self._manifest_path.parent.resolve()
+            references_path = self.ccs_workbench.references._csv_path
+            if references_path and Path(references_path).resolve().is_relative_to(demo_root):
+                self.ccs_workbench.clear_references(preserve_calibration=True)
+            for panel, picker in ((self.calibration_panel, self.calibration_panel.pick_csv),
+                                  (self.analyte_panel, self.analyte_panel.pick_ana)):
+                if picker.path() and Path(picker.path()).resolve().is_relative_to(demo_root):
+                    picker.set_path("")
+                    panel.table.load_dataframe(pd.DataFrame())
+
+    def open_raw(self, path=None):
+        if self.is_busy:
+            return
+        if path is None or isinstance(path, bool):
+            path = QFileDialog.getExistingDirectory(self, "Open a complete Waters .raw folder", self.pick_source.path())
+        if not path:
+            return
+        try:
+            source = local_path(path).resolve()
+            if not source.is_dir() or not any(record.get("raw") for record in discover_runs(source)):
+                raise ValueError("Choose a complete Waters .raw folder, or a parent folder containing acquisitions.")
+            self._prepare_custom_input()
+        except (OSError, ValueError) as error:
+            self._problem(str(error))
+            return
+        self.pick_source.set_path(str(source))
+        self.tabs.setCurrentIndex(0)
+        self.process_and_view()
 
     def _source_changed(self, _text=""):
         text = self.pick_source.path()
+        if self.combo_demo.currentData() is not None and text != self._example_source:
+            self._prepare_custom_input()
+        self.pick_source.line.setToolTip(text or "Complete Waters .raw folder, or a parent containing RAW acquisitions")
         if text and (not self.pick_out.path() or self.pick_out.path() == self._auto_output):
             self._auto_output = str(self._default_output(Path(text).stem or "results"))
             self.pick_out.set_path(self._auto_output)
@@ -838,7 +1140,18 @@ class WatersWorkspacePanel(QWidget):
         self.ccs_demo_description.setText("")
         self._paths_changed()
 
+    @staticmethod
+    def _commit_path(picker, callback):
+        if picker.line.isModified():
+            picker.line.setModified(False)
+            callback()
+
+    def _viewer_actions_context(self, index):
+        self.btn_viewer.setVisible(index == 0)
+        self.btn_export_view.setVisible(index == 0)
+
     def _paths_changed(self, _text=""):
+        self.pick_out.line.setToolTip(self.pick_out.path() or "Select a writable output folder outside the RAW acquisition.")
         self._sync_ccs_paths()
         self.reload_runs()
 
@@ -854,14 +1167,40 @@ class WatersWorkspacePanel(QWidget):
             panel.pick_out.set_path(str(ccs) if ccs else "")
             panel.combo_method.setCurrentText(self.combo_method.currentText())
         self.analyte_panel.pick_cal.set_path(self.calibration_panel.pick_csv.path())
+        if out:
+            self.ccs_workbench.set_output_dir(out / "ccs")
 
     def reload_runs(self):
+        if self.is_busy:
+            return
         current = self.run_table.currentRow()
-        selected_name = self._rows[current]["run_name"] if 0 <= current < len(self._rows) else None
+        selected_name = self._preferred_run_name or (self._rows[current]["run_name"] if 0 <= current < len(self._rows) else None)
+        self._preferred_run_name = None
         source = Path(self.pick_source.path()) if self.pick_source.path() else None
         out = Path(self.pick_out.path()) if self.pick_out.path() else None
         try:
-            self._rows = discover_runs(source, out)
+            self._rows = discover_runs(source, out) if source is not None else []
+            previous_by_folder = {}
+            settings = {"function": self.spin_func.value(), "ms_bin": self.spin_ms_bin.value(),
+                        "im_bin": self.spin_im_bin.value(), "ms_smoothing": False}
+            for record in self._rows:
+                if not record.get("raw") or not all(record.get(key) for key in ("ms", "im")):
+                    continue
+                folder = Path(record["ms"]).parent
+                if folder not in previous_by_folder:
+                    try:
+                        previous_by_folder[folder] = json.loads((folder / "conversion_settings.json").read_text(encoding="utf-8"))
+                        if not isinstance(previous_by_folder[folder], dict):
+                            previous_by_folder[folder] = {}
+                    except (OSError, ValueError):
+                        previous_by_folder[folder] = {}
+                raw = record["raw"]
+                expected = {**settings, "raw_source": str(raw.resolve()),
+                            "source_files": [[p.name, p.stat().st_size, p.stat().st_mtime_ns]
+                                             for p in sorted(raw.iterdir()) if p.is_file()]}
+                if previous_by_folder[folder].get(record["run_name"]) != expected:
+                    for key in ("ms", "im", "viewer"):
+                        record.pop(key, None)
         except OSError as error:
             self._rows = []
             self._problem(f"Could not inspect input: {error}")
@@ -871,7 +1210,7 @@ class WatersWorkspacePanel(QWidget):
         for i, record in enumerate(self._rows):
             paired = bool(record.get("ms") and record.get("im"))
             data_status = "MS + IM" if paired else "Missing IM" if record.get("ms") else "Missing MS" if record.get("im") else "Not converted"
-            status = "Viewer ready" if record.get("viewer") else "Ready to view" if paired else "Needs conversion" if record.get("raw") else "Incomplete TXT pair"
+            status = "Ready" if record.get("viewer") or paired else "RAW" if record.get("raw") else "Incomplete"
             info = returned.get(record["run_name"], {})
             detail = info.get("status")
             if detail:
@@ -885,13 +1224,11 @@ class WatersWorkspacePanel(QWidget):
                 item.setToolTip("\n".join(str(record[key]) for key in ("raw", "ms", "im", "viewer") if record.get(key)))
                 self.run_table.setItem(i, column, item)
             name = record["run_name"]
-            short_name = name[9:] if len(name) > 9 and name[:8].isdigit() and name[8] == "_" else name
-            self.run_table.item(i, 0).setText(short_name + "\n" + ("RAW acquisition" if record.get("raw") else "Converted TXT"))
-        raw_count = sum(bool(row.get("raw")) for row in self._rows)
+            self.run_table.item(i, 0).setText(Path(record["raw"]).name if record.get("raw") else name + "\nMS / IM")
         pair_count = sum(bool(row.get("ms") and row.get("im")) for row in self._rows)
         viewer_count = sum(bool(row.get("viewer")) for row in self._rows)
-        self.overview.setText(f"{len(self._rows)} runs  ·  {raw_count} RAW acquisitions  ·  {pair_count} MS/IM pairs" if self._rows else "No runs loaded. Choose a source folder or load a real demo above.")
-        self.queue_summary.setText(f"{len(self._rows)} inputs ready" if self._rows else "No inputs loaded")
+        self.overview.setText(f"{len(self._rows)} acquisition" + ("s" if len(self._rows) != 1 else "") if self._rows else "Choose Input to begin.")
+        self.queue_summary.setText(f"{len(self._rows)} loaded" if self._rows else "No data")
         self.output_summary.setText(f"{pair_count} MS/IM pairs · {viewer_count} HTML exports" if self._rows else "No outputs yet")
         self.output_summary.setToolTip(f"{pair_count} converted pairs for native viewing; {viewer_count} portable HTML exports. CCS is optional.")
         if self._rows:
@@ -905,10 +1242,15 @@ class WatersWorkspacePanel(QWidget):
     def _update_open_buttons(self):
         index = self.run_table.currentRow()
         has_pair = 0 <= index < len(self._rows) and all(self._rows[index].get(key) for key in ("ms", "im"))
-        self.btn_viewer.setEnabled(not self._busy and has_pair)
-        self.btn_export_view.setEnabled(not self._busy and has_pair and self.viewer_widget.is_ready)
-        self.btn_export.setEnabled(not self._busy and 0 <= index < len(self._rows) and all(self._rows[index].get(key) for key in ("ms", "im")))
-        self.btn_folder.setEnabled(bool(self.pick_out.path()) and Path(self.pick_out.path()).is_dir())
+        busy = self.is_busy
+        self.btn_viewer.setEnabled(not busy and has_pair)
+        for action in self.capture_actions:
+            action.setEnabled(not busy and has_pair and self.viewer_widget.is_ready)
+        self.action_export_html.setEnabled(not busy and has_pair)
+        self.action_output_folder.setEnabled(not busy and bool(self.pick_out.path()) and Path(self.pick_out.path()).is_dir())
+        self.btn_export_view.setEnabled(any(action.isEnabled() for action in (*self.capture_actions, self.action_export_html, self.action_output_folder)))
+        self.btn_export.setEnabled(self.action_export_html.isEnabled())
+        self.btn_folder.setEnabled(self.action_output_folder.isEnabled())
 
     def open_viewer(self):
         index = self.run_table.currentRow()
@@ -922,11 +1264,12 @@ class WatersWorkspacePanel(QWidget):
 
     @property
     def is_busy(self):
-        return self._busy
+        return self._busy or self.ccs_workbench.is_busy
 
     def wait_for_worker(self):
         if self._worker and self._worker.isRunning():
             self._worker.wait()
+        self.ccs_workbench.wait_for_worker()
 
     def process_and_view(self):
         try:
@@ -970,17 +1313,21 @@ class WatersWorkspacePanel(QWidget):
         return path
 
     def _start(self, *, html, ccs):
-        if self._busy:
+        if self.is_busy:
             return
         source_text, out_text = self.pick_source.path(), self.pick_out.path()
-        source = Path(source_text) if source_text else None
+        try:
+            source = local_path(source_text) if source_text else None
+            out = local_path(out_text) if out_text else None
+        except ValueError as error:
+            self._problem(str(error))
+            return
         if not source or not source.exists():
             self._problem("Choose an existing complete Waters RAW folder or converted TXT source.")
             return
         if not out_text:
             self._problem("Choose an output folder.")
             return
-        out = Path(out_text)
         if out.exists() and not out.is_dir():
             self._problem("The output path is a file. Choose a folder.")
             return
@@ -991,6 +1338,11 @@ class WatersWorkspacePanel(QWidget):
             return
         if not rows:
             self._problem("No Waters RAW acquisitions or MS/IM text pairs were found in the source.")
+            return
+        if any(out.resolve().is_relative_to(row["raw"].resolve()) for row in rows if row.get("raw")) or any(
+            parent.suffix.casefold() == ".raw" and parent.is_dir() for parent in (out, *out.parents)
+        ):
+            self._problem("Choose an output folder outside the RAW acquisition.")
             return
         incomplete = [row["run_name"] for row in rows if not row.get("raw") and not (row.get("ms") and row.get("im"))]
         if incomplete:
@@ -1005,7 +1357,7 @@ class WatersWorkspacePanel(QWidget):
             cal_csv = self._snapshot_table(self.calibration_panel, self.calibration_panel.pick_csv, "calibrants.csv", {"name", "mw", "z", "mz", "ccs", "raw_path"}) if ccs else None
             analyte_frame = self.analyte_panel.table.to_dataframe()
             ana_csv = self._snapshot_table(self.analyte_panel, self.analyte_panel.pick_ana, "analytes.csv", {"species", "mw", "z", "mz", "raw_path"}) if ccs and not analyte_frame.empty else None
-            kwargs = dict(convert=any(row.get("raw") for row in rows), html=html, calibrant_csv=cal_csv, analyte_csv=ana_csv, method=self.combo_method.currentText(), config_path=config_path, skip_existing=self.chk_reuse.isChecked(), func=self.spin_func.value(), ms_bin=self.spin_ms_bin.value(), im_bin=self.spin_im_bin.value())
+            kwargs = dict(convert=any(row.get("raw") for row in rows), html=html, calibrant_csv=cal_csv, analyte_csv=ana_csv, method=self.combo_method.currentText(), config_path=config_path, skip_existing=self.chk_reuse.isChecked(), func=self.spin_func.value(), ms_bin=self.spin_ms_bin.value(), im_bin=self.spin_im_bin.value(), jobs=int(self.spin_jobs.value()))
         except (OSError, ValueError) as error:
             self._cleanup_job_files()
             self._problem(str(error))
@@ -1025,8 +1377,16 @@ class WatersWorkspacePanel(QWidget):
 
     def _set_busy(self, busy):
         self._busy = busy
-        for widget in (self.sources_group, self.btn_run, self.btn_convert, self.btn_export_view, self.btn_ccs, self.chk_ccs, self.display_group, self.range_group, self.advanced, self.btn_advanced, self.btn_reload, self.ccs_editors, self.combo_method):
+        self._update_interaction_state()
+
+    def _update_interaction_state(self):
+        busy = self._busy or self.ccs_workbench._busy
+        for widget in (self.pick_source, self.pick_out, self.sources_group, self.btn_open_raw, self.btn_run, self.btn_convert, self.btn_process, self.spin_jobs, self.btn_export_view, self.btn_ccs, self.chk_ccs, self.display_group, self.range_group, self.advanced, self.btn_advanced, self.btn_reload, self.ccs_editors, self.combo_method):
             widget.setEnabled(not busy)
+        self.run_table.setEnabled(not busy)
+        self.viewer_widget.targets_editor.setEnabled(not busy)
+        self.btn_calibration.setEnabled(not busy)
+        self.ccs_workbench.setEnabled(not self._busy)
         self._update_open_buttons()
 
     def _do_run(self, source, out, kwargs):

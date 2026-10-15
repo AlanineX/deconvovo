@@ -13,8 +13,8 @@ from pathlib import Path
 import sys
 
 import numpy as np
-from scipy.ndimage import correlate1d, maximum_filter1d
-from scipy.signal import savgol_coeffs
+from scipy.ndimage import correlate1d
+from scipy.signal import find_peaks, savgol_coeffs
 
 from deconvovo.paths import local_path
 
@@ -39,6 +39,7 @@ class ViewSnapshot:
     visible_drift_slice: slice
     baked_mz_range: tuple[float, float]
     ms_mode: str
+    drift_profile_centres: np.ndarray | None = None
 
 
 def _readonly(array):
@@ -64,6 +65,14 @@ def _configuration(config):
         return json.loads(path.read_text(encoding="utf-8"))
     return {"defaults": {"mz_bins": 800, "smooth_2d": {"method": "raw"},
         "smooth_drift": {"method": "raw"}, "scale": "1", "z_scale": "log10"}}
+
+
+def _native_bin_position(value, width):
+    position = value / width
+    nearest = round(position)
+    # Decimal axis entries such as 0.3 / 0.1 can land just below bin 3.
+    tolerance = 2 * sys.float_info.epsilon * max(1, abs(position))
+    return nearest if abs(position - nearest) <= tolerance else position
 
 
 def _filter_axis(values, kernel, axis, boundary="mirror"):
@@ -179,7 +188,8 @@ def _display_values(raw, mz_domain, drift_centres, pusher_us, defaults):
 class ViewData:
     """Immutable acquired values; each render is a pure function of the settings."""
 
-    def __init__(self, mz, drift, intensity, ms_mz, ms_intensity, pusher_us, config):
+    def __init__(self, mz, drift, intensity, ms_mz, ms_intensity, pusher_us, config,
+                 profile_mz=None, native_drift_count=None):
         self.raw_mz = _readonly(mz)
         self.raw_drift = np.asarray(drift, dtype=np.int64)
         self.raw_drift.setflags(write=False)
@@ -190,11 +200,21 @@ class ViewData:
         if not math.isfinite(self.pusher_us) or self.pusher_us < 0:
             raise ValueError("The pusher period must be finite and nonnegative.")
         self.config = deepcopy(config)
-        self.full_mz_range = (float(mz.min()), float(mz.max()))
-        self.n_drift_native = int(drift.max()) + 1
+        self.n_drift_native = int(drift.max()) + 1 if native_drift_count is None else int(native_drift_count)
         self.drift_unit = "ms" if self.pusher_us > 0 else "bins"
         self.full_drift_range = (0.0, self.n_drift_native * (self.pusher_us / 1000 if self.pusher_us > 0 else 1))
+        self._native_drift_centres = _readonly((np.arange(self.n_drift_native) + 0.5)
+            * (self.pusher_us / 1000 if self.pusher_us > 0 else 1))
         self._unique_mz = np.unique(mz)
+        # Keep acquired m/z coordinates, including zero-intensity gap samples.
+        # The paired MS axis supplies those gaps without imposing a new grid.
+        self._profile_mz = _readonly(np.union1d(ms_mz, mz if profile_mz is None else profile_mz))
+        self.full_mz_range = (float(self._profile_mz[0]), float(self._profile_mz[-1]))
+        self._finest_mz_step = float(np.diff(self._profile_mz).min()) if len(self._profile_mz) > 1 else 0.0
+        self._profile_indices = np.searchsorted(self._profile_mz, self.raw_mz)
+        self._profile_indices.setflags(write=False)
+        self._full_ms_profile = _readonly(np.bincount(self._profile_indices,
+            weights=self.raw_intensity, minlength=len(self._profile_mz)))
         deltas = np.diff(self._unique_mz)
         deltas = deltas[(deltas > 0) & (deltas < 0.1)]
         self.native_mz_step = float(np.percentile(deltas, 95) * 1.3) if len(deltas) else 0.01
@@ -212,7 +232,64 @@ class ViewData:
         if domain[1] <= domain[0]:
             # A one-m/z acquisition still needs a nonzero cell width.
             domain = (domain[0] - self.native_mz_step / 2, domain[1] + self.native_mz_step / 2)
+        defaults = config.get("defaults", {})
+        preset = defaults.get("smooth_2d", {})
+        sigma = float(preset.get("sigma", 0)) if preset.get("method") == "gaussian" else 0
+        if preset.get("method") == "gaussian" and math.isfinite(sigma) and sigma > 0 and self.full_mz_range[1] > self.full_mz_range[0]:
+            roi, previous_bins = domain, None
+            span = roi[1] - roi[0]
+            drift_bins = defaults.get("drift_bins", "native")
+            drift_bins = self.n_drift_native if drift_bins == "native" else int(drift_bins)
+            while drift_bins > 0:
+                mz_bins = defaults.get("mz_bins", 800)
+                if mz_bins == "native":
+                    mz_bins = min(25600, max(200, int(np.searchsorted(self._unique_mz, domain[1], "right")
+                        - np.searchsorted(self._unique_mz, domain[0]))))
+                else:
+                    mz_bins = int(mz_bins)
+                if mz_bins == previous_bins or mz_bins <= 0:
+                    break
+                previous_bins = mz_bins
+                ratio = mz_bins / drift_bins
+                scale = defaults.get("scale", "1")
+                factor = ratio if scale == "full" else math.sqrt(ratio) if scale == "sqrt" else float(scale)
+                if not math.isfinite(factor) or factor < 0:
+                    break  # the existing smoothing validation reports the invalid setting
+                support = sigma * max(factor, ratio if preset.get("sigma_dr") is None else 0)
+                if span >= 8 * support:
+                    break
+                # Convolve with real surrounding data without widening the
+                # requested view or any exact RAW 1D selection. Keep context
+                # cells no finer than the finest acquired mass interval.
+                padding = max(4 * support, (mz_bins * self._finest_mz_step - span) / 2)
+                width = min(self.full_mz_range[1] - self.full_mz_range[0], span + 2 * padding)
+                low = max(self.full_mz_range[0], min(roi[0] - padding, self.full_mz_range[1] - width))
+                domain = (low, low + width)
         return domain
+
+    def _drift_axis(self, bins):
+        step = self.n_drift_native / bins
+        edges = np.floor(np.arange(bins + 1) * step).astype(np.int64)
+        edges[-1] = self.n_drift_native  # avoid losing the final bin to floating-point floor
+        centres = (np.arange(bins) + 0.5) * step * (self.pusher_us / 1000 if self.pusher_us > 0 else 1)
+        return edges, _readonly(centres)
+
+    def extract_drift_profile(self, mz_range, config=None):
+        """Inclusive RAW m/z ROI on every native acquired drift bin."""
+        cfg = deepcopy(self.config if config is None else config)
+        defaults = cfg.get("defaults", {})
+        lo, hi = _bounds(mz_range, self.full_mz_range, "m/z region")
+        return self._native_drift_centres, self._drift_profile(lo, hi, defaults), self.drift_unit
+
+    def _drift_profile(self, lo, hi, defaults):
+        selected = (self.raw_mz >= lo) & (self.raw_mz <= hi)
+        profile = np.bincount(self.raw_drift[selected], weights=self.raw_intensity[selected],
+            minlength=self.n_drift_native)
+        noise = float(defaults.get("noise_drift", 0))
+        if noise > 0:
+            profile[profile < profile.max(initial=0) * noise / 100] = 0
+        profile = _smooth_axis(profile, defaults.get("smooth_drift", {"method": "raw"}))
+        return _readonly(profile)
 
     def _grid(self, config):
         defaults = config.get("defaults", {})
@@ -232,18 +309,16 @@ class ViewData:
         if cached is not None and cached[0] == key:
             return key, *cached[1:]
         mz_step = (domain[1] - domain[0]) / mz_bins
-        drift_step = self.n_drift_native / drift_bins
         mz_indices = np.floor((self.raw_mz - domain[0]) / mz_step).astype(np.int64)
         mz_indices[self.raw_mz == domain[1]] = mz_bins - 1
         # JS groups native integer drift bins over [floor(d*s),floor((d+1)*s)).
         # searchsorted reproduces that rule when fractional/upsampled bins exist.
-        drift_edges = np.floor(np.arange(drift_bins + 1) * drift_step).astype(np.int64)
+        drift_edges, drift_centres = self._drift_axis(drift_bins)
         drift_indices = np.searchsorted(drift_edges, self.raw_drift, side="right") - 1
         valid = (mz_indices >= 0) & (mz_indices < mz_bins) & (drift_indices >= 0) & (drift_indices < drift_bins)
         flat = drift_indices[valid] * mz_bins + mz_indices[valid]
         raw = np.bincount(flat, weights=self.raw_intensity[valid], minlength=drift_bins * mz_bins).reshape(drift_bins, mz_bins)
         mz_centres = domain[0] + (np.arange(mz_bins) + 0.5) * mz_step
-        drift_centres = (np.arange(drift_bins) + 0.5) * drift_step * (self.pusher_us / 1000 if self.pusher_us > 0 else 1)
         cached = (key, _readonly(raw), _readonly(mz_centres), _readonly(drift_centres))
         self._grid_cache = cached
         return cached
@@ -274,40 +349,42 @@ class ViewData:
         d_lo = max(0, math.floor(dr_lo / drift_width)) if dr_hi > dr_lo else 0
         d_hi = min(drift_bins - 1, math.ceil(dr_hi / drift_width) - 1) if dr_hi > dr_lo else -1
         mz_slice, drift_slice = slice(m_lo, m_hi + 1), slice(d_lo, d_hi + 1)
-        drift_profile = raw[:, mz_slice].sum(axis=1)
-        noise = float(defaults.get("noise_drift", 0))
-        if noise > 0:
-            drift_profile[drift_profile < drift_profile.max(initial=0) * noise / 100] = 0
-        drift_profile = _smooth_axis(drift_profile, defaults.get("smooth_drift", {"method": "raw"}))
-        dr_step = self.n_drift_native / drift_bins
-        native_lo = max(0, math.floor(d_lo * dr_step))
-        native_hi = min(self.n_drift_native - 1, math.floor((d_hi + 1) * dr_step) - 1) if d_hi >= d_lo else -1
-        span = mz_hi - mz_lo
-        step = next((v for v in (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1) if span / v <= 12000), 1)
-        step = max(step, self.native_mz_step)
-        count = max(1, math.ceil(span / step) + 1)
-        ms_mz = mz_lo + np.arange(count) * step
-        selected = ((self.raw_drift >= native_lo) & (self.raw_drift <= native_hi)
-            & (self.raw_mz >= mz_lo) & (self.raw_mz <= mz_hi))
-        bins = np.floor((self.raw_mz[selected] - mz_lo) / step + 0.5).astype(np.int64)
-        valid = (bins >= 0) & (bins < count)
-        ms_intensity = np.bincount(bins[valid], weights=self.raw_intensity[selected][valid], minlength=count)
+        drift_profile = self._drift_profile(mz_lo, mz_hi, defaults)
+        native_width = self.pusher_us / 1000 if self.pusher_us > 0 else 1
+        native_lo = max(0, math.floor(_native_bin_position(dr_lo, native_width))) if dr_hi > dr_lo else 0
+        native_hi = min(self.n_drift_native - 1, math.ceil(_native_bin_position(dr_hi, native_width)) - 1) if dr_hi > dr_lo else -1
+        if native_lo == 0 and native_hi == self.n_drift_native - 1:
+            full_ms_profile = self._full_ms_profile
+        else:
+            selected = (self.raw_drift >= native_lo) & (self.raw_drift <= native_hi)
+            full_ms_profile = np.bincount(self._profile_indices[selected],
+                weights=self.raw_intensity[selected], minlength=len(self._profile_mz))
+        start = np.searchsorted(self._profile_mz, mz_lo, side="left")
+        stop = np.searchsorted(self._profile_mz, mz_hi, side="right") if mz_hi >= mz_lo else start
+        ms_mz = self._profile_mz[start:stop]
+        ms_intensity = full_ms_profile[start:stop].copy()
         noise = float(defaults.get("noise_mz", 0))
         if noise > 0:
             ms_intensity[ms_intensity < ms_intensity.max(initial=0) * noise / 100] = 0
         ms_mode = defaults.get("ms_mode", "profile")
-        if ms_mode == "stick" and count > 2:
-            window = max(2, math.floor(0.08 / step + 0.5))
-            maxima = maximum_filter1d(ms_intensity, size=2 * window + 1, mode="nearest")
-            peaks = np.flatnonzero((ms_intensity > ms_intensity.max(initial=0) * 0.01) & (ms_intensity == maxima))
-            peaks = peaks[(peaks >= window) & (peaks < count - window)]
+        if ms_mode == "stick" and len(ms_mz) > 2:
+            threshold = ms_intensity.max(initial=0) * 0.01
+            peaks, _ = find_peaks(ms_intensity, height=threshold)
+            # Native TOF spacing varies with m/z: select local peaks in a real
+            # mass neighborhood rather than smoothing or merging the samples.
+            lower = np.searchsorted(ms_mz, ms_mz[peaks] - 0.08, side="left")
+            upper = np.searchsorted(ms_mz, ms_mz[peaks] + 0.08, side="right")
+            peaks = np.asarray([peak for peak, lo, hi in zip(peaks, lower, upper)
+                if ms_intensity[peak] > threshold
+                and ms_intensity[peak] == ms_intensity[lo:hi].max()], dtype=np.int64)
             stick_mz, stick_intensity = np.full((len(peaks), 3), np.nan), np.full((len(peaks), 3), np.nan)
             stick_mz[:, :2] = ms_mz[peaks, None]
             stick_intensity[:, 0], stick_intensity[:, 1] = 0, ms_intensity[peaks]
             ms_mz, ms_intensity = stick_mz.ravel(), stick_intensity.ravel()
         return ViewSnapshot(mz_centres, drift_centres, values, _readonly(drift_profile),
             _readonly(ms_mz), _readonly(ms_intensity), mz_range, drift_range,
-            self.drift_unit, label, transform, raw, mz_slice, drift_slice, domain, ms_mode)
+            self.drift_unit, label, transform, raw, mz_slice, drift_slice, domain, ms_mode,
+            self._native_drift_centres)
 
 
 def load_view_data(im_path, ms_path=None, pusher_us=None, config=None):
@@ -327,4 +404,5 @@ def load_view_data(im_path, ms_path=None, pusher_us=None, config=None):
         if ms.shape[1] < 2 or not np.isfinite(ms[:, :2]).all():
             raise ValueError("The MS table must contain finite m/z and intensity columns.")
         ms_mz, ms_intensity = ms[:, 0], ms[:, 1]
-    return ViewData(mz, drift, intensity, ms_mz, ms_intensity, pusher_us, _configuration(config))
+    return ViewData(mz, drift, intensity, ms_mz, ms_intensity, pusher_us, _configuration(config),
+        profile_mz=im[:, 0], native_drift_count=int(im[:, 1].max()) + 1)

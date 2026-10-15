@@ -1,12 +1,11 @@
 # Waters Instrument Console
 
-The selected Instrument Console design keeps the acquisition browser, measured
-plot, and display/CCS inspector visible together. Source and output paths are
-shared across processing and analysis:
+The Instrument Console opens an acquisition, displays native plots, and keeps
+its editable targets beside the spectrum. Calibration is optional and reusable:
 
-- **Process & view:** convert complete RAW acquisitions, inspect each run in native plots, and reload existing results. HTML is generated only on explicit export.
-- **Convert only:** create MS/IM tables without generating HTML, running CCS, or requiring calibrant/analyte CSVs.
-- **CCS review:** edit calibrant and analyte tables, fit and apply a calibration in one job, then inspect curves, reference mobility profiles, and analyte summaries.
+- Set the two wide **Input/Output** rows, refresh the acquisition list, then **Process files**.
+- **Targets:** enter an m/z interval; selecting its row focuses the 2D plot and exact drift profile.
+- **Calibration** tab: process references, choose peaks, fit and review; saved curves can be loaded.
 
 RAW extraction → paired MS/IM tables → native plots → optional calibration and analyte CCS.
 Portable offline HTML is a separate export from those converted tables.
@@ -35,22 +34,32 @@ dependencies are required for this source distribution.
 
 ## Use real acquired data
 
-Choose a profile and click **Load real demo**, then **Process & view**. The
-demo's source, display configuration, and available CCS tables load together.
-Results are written to a user documents folder; change Output if needed.
+Your own data needs no named setup: choose Input/Output and **Process files**.
+The viewer uses saved display styles and the acquisition's full range, with CCS off. Outputs go to
+`Documents/DeconVoVo/Waters/<acquisition>`; change Output if needed.
+Wide editable **Input** and **Output** rows span the panels; **Data** holds only **Examples**.
+Choosing an example fills both paths, its display settings and available CCS
+references/targets, and lists its RAW folders. It does not convert them yet.
+Set Input/Output directly or use their **…** folder pickers. **Acquisitions**
+lists filenames and **State**: **RAW** awaits processing; **Ready** has converted
+files. Both columns resize. **Refresh** rescans Input for added/deleted RAW
+folders and removes acquisitions whose source disappeared. **Process files**
+processes the listed runs; select one acquisition for native viewing.
+The integer **CPU** field limits simultaneous RAW readers; it defaults to one
+and permits up to the available CPU cores.
 The [production demo guide](examples/production/README.md) records the seven
 complete acquisitions, 106 original files, 235.75 MiB, checks, and scientific limits.
 
 | Profile | Complete RAW runs | Workflow |
 | --- | ---: | --- |
-| Protein calibrants + ADP CCS (default) | 5 | Three protein standards fit the curve for two ADP conditions; 25 reference rows and 34 inherited target assignments |
-| Tune mix + Betaine | 2 | Batch viewing, six calibrant rows, one analyte |
-| Betaine · 1000–2000 m/z detail | One existing Betaine run | Visual-only detail; no calibrant/analyte CSVs or CCS fit |
+| Protein standards + ADP (default) | 5 | Three protein standards fit the curve for two ADP conditions; 25 reference rows and 34 inherited target assignments |
+| Tune mix + Betaine | 2 | Two acquisitions, six reference ions, one analyte |
+| Betaine | One existing Betaine run | Visual-only detail; no calibrant/analyte CSVs or CCS fit |
 
-CCS starts off. Review the tables in **CCS review**, then choose
-**Calibrate & apply**, or enable CCS during **Process & view**. Edited table
-snapshots feed the job without rewriting the shipped reference tables.
-Relative RAW paths resolve beside their original CSV.
+Opening an example does not calculate CCS. In **Calibration**, process the
+reference table, inspect its peaks, then fit/review before applying.
+Edited table snapshots feed the job without rewriting the shipped CSV.
+Relative reference RAW paths resolve beside their original CSV.
 
 The inherited protein calibration has $R^2 = 0.874117$ and needs peak-selection
 and condition review. The tune-mix fit has $R^2 = 0.999915$, but Betaine lies
@@ -61,35 +70,68 @@ two-parameter TW-IMS curve; this implementation requires at least three valid
 calibrant peaks. Use the protein standards for the ADP example. The tune-mix
 calibration remains a separate small-molecule workflow.
 
-For your data, select a complete `.raw` directory, a parent containing RAW
-acquisitions, or an existing folder of paired `_ms.txt`/`_im.txt`. Nested
-condition folders are supported. Double-click a completed viewer row to open
-the run's native plots. **Open output folder** locates exported artifacts.
+**Input** accepts complete `.raw` directories and parents containing runs.
+Validated converted pairs are reused automatically; no TXT picker is needed.
+Nested acquisition folders are supported. Select a run to view it.
+**Open output folder** locates exported artifacts.
 
-## Display and extraction settings
+## Interest profiles and optional CCS
 
-**Advanced processing & defaults** holds acquisition function and bin
-widths plus display intensity, smoothing, cutoff/fade, rendering, native/display
-bins, profile/stick mode, and initial mass/drift ranges. RAW extraction disables
-reader-side MS smoothing; visual smoothing remains adjustable in the viewer.
-Use **Save defaults** in this section to keep viewer settings across relaunches.
-Saved configuration retains fields that the desktop does not edit; frozen builds
-store it in the user's application configuration directory.
+Under **Spectrum**, **Targets → Add** starts a row from the visible m/z interval.
+**m/z min/max** are required, finite and increasing. Selecting a row focuses the
+2D plot to its mass interval and drift bounds, then shows its exact profile
+beside the heatmap and in **Mobiligram**. Auto bounds fill all valid rows before
+selection, on data load/import or mass-bound edits. **Auto** encloses every positive
+raw drift sample inside the interval, ignoring display filters, with equal 20%
+padding before clipping to the acquisition. For a 5–11 ms signal this gives
+2.8–13.2 ms before clipping. Uncheck **Auto** to enter finite increasing
+drift bounds manually; their header tooltips give the units. **Full view** deselects the target and restores the
+acquisition; **Home/Reset view** restores full acquisition axes, including zero
+endpoints, while retaining display filters. ADP EDDA's full drift extent is
+13.8 ms (200 bins, 69 µs pusher), rather than a preset's viewing limit.
+Mass/charge fields stay hidden for profiling and appear for a CCS model. **Export → Drift PNG/CSV** saves
+the selected profile inside the current drift view. **Import CSV** loads targets;
+**Export CSV** saves target inputs, drift ranges, computed CCS results and flags.
+Import restores results only for the same acquisition; otherwise they become
+stale while inputs remain. These are separate from the exported profile samples. See the
+[CSV reference](docs/csv_reference.md).
 
-The separate **Betaine · 1000–2000 m/z detail** choice uses the same complete
+The central **Calibration** tab has linked plots above one editable reference
+table; drag the vertical divider to adjust their heights. Use **Load CSV**, or
+**Add standard RAW → + Row**. Enter explicit **m/z min/max**, mass, charge and
+**CCS_reported**; legacy centre/window CSVs also load. **Extraction options**
+exposes signal thresholds. **Process references** detects candidates without
+fitting; watch processing status and inspect their native drift times.
+Click an ion row to show its profile and circle its calibration point; clicking
+the curve point selects that row. **Highest/Last** buttons immediately choose
+the tallest/latest accepted peaks for **Selected ions** (Ctrl/Shift multiselect)
+or **All ions**. For **Manual**, click a detected profile marker; no automatic
+fallback is used. Chosen peak/time cells are read-only with full-precision tooltips.
+Peak choices preview immediately; the previous curve becomes dashed and requires
+refitting. **Fit calibration** is explicit. Inspect the new curve and warnings,
+then click **Generate CCS**. The selected complete target gains an interactive
+CCS profile below Axis ranges on the right. **Save calibration** stores the
+current curve; **Load calibration** restores it without refitting. Loaded curves
+also require **Generate CCS** before target processing. Complete targets then
+refresh automatically when their inputs or acquisition change. Peak or fit edits
+clear old CCS until refitting and generating again. Targets need mass and charge;
+incomplete rows remain uncalculated. Saving preserves results.
+Reprocess after extraction edits and reuse curves only under matching conditions.
+
+## Display and viewing
+
+The separate **Betaine** choice uses the same complete
 Betaine acquisition with the included
-[focused configuration](examples/production/small_molecule/betaine_1000_2000_viewer_config.json).
+[focused configuration](examples/production/small_molecule/detail_view.json).
 It spans 1000–2000 and 4–12 ms, with cube-root intensity, 6400 mass bins and
 native drift bins. Its high-mass features are unassigned; the Betaine ion near
 118 is outside the focus. The protein/ADP overview remains the default CCS example.
-The [pipeline guide](PIPELINE_README.md) gives the separate visual-only command.
 
 The visible **X · m/z** and **Y · drift time (ms)** controls provide minimum and
-maximum fields. CCS review uses full-width **Calibrant sheet** and **Analyte sheet**
-tabs, with separate calibration/profile/result tabs for inspection.
+maximum fields. They follow the current zoom; editing them sets the view range.
+They are separate from a selected target's extraction interval.
 
-**Reuse unchanged RAW conversions** checks extraction settings and source-file
-metadata. Changed functions, bin widths, or input files trigger fresh extraction.
+Conversion reuse checks extraction settings and source-file metadata. Changed functions, bin widths, or input files trigger fresh extraction.
 Native plots update from the loaded tables with current display settings.
 A failed reader run
 stops downstream work and retains previous files without marking the new job
@@ -98,11 +140,23 @@ complete.
 The central viewer renders the heatmap and linked profiles with Matplotlib and
 NumPy/SciPy. It does not embed a browser or load HTML. Inspector controls update
 the native plots; widening the X/Y ranges can use the source TXT directly.
-**Reset view** restores the numeric ranges while retaining current filters.
-Mouse zoom/pan updates both linked profiles; changing a numeric range replaces
-that mouse viewport, while changing an unrelated display control retains it.
+**Home/Reset view** restores the full acquired mass and physical drift ranges
+while retaining current filters.
+Drift-only zoom crops the native curve and rescales its intensity axis. All
+acquired samples remain on the line at every zoom, with no automatic point markers.
+Changing the extraction mass window recomputes the drift profile; selected targets
+retain their explicit mass bounds. The heatmap's Gaussian smoothing and
+cube-root/other intensity transforms affect only its 2D appearance.
+For very narrow mass views, native Gaussian smoothing uses surrounding acquired
+signal as a convolution margin. Axis bounds and target 1D extraction stay exact;
+the backing heatmap grid can extend beyond the visible region.
+Changing a numeric range replaces the mouse viewport; unrelated display
+controls retain it.
+Hover reports coordinates and the processed heatmap cell value in the toolbar.
+Wheel zoom needs no mode selection; **Zoom** drags a rectangle and **Pan** moves
+the view. **Back/Forward** restore previous bounds; **Home** restores the full acquisition.
 
-**Export current view** offers full-plot, heatmap, MS-profile and drift-profile
+**Export** offers full-plot, heatmap, MS-profile and drift-profile
 PNG, plus heatmap/MS/drift CSV. These exports use the current view and settings;
 the 2D CSV contains displayed transformed/filtered values, not raw point intensities.
 
@@ -116,9 +170,12 @@ Native viewing and separate HTML export work offline after installing the source
 directly from the self-contained native application. Extraction and CCS also
 run locally using the supplied reader and data.
 Exact target-window extraction remains available through `extract_mobiligram.py`.
-The desktop job uses one background thread and processes acquisitions in order,
-keeping memory bounded. Controls lock while the job runs; progress identifies
-the current run and stage. Use the existing CLIs for parallel batch work.
+A desktop worker coordinates separate reader processes, up to **CPU**, with
+isolated staged output pairs. HTML and optional CCS stages run sequentially
+after all conversions succeed. Controls lock during processing and progress
+identifies each run/stage. Failed refreshes invalidate their conversion cache;
+queued readers cancel, running readers finish, and downstream work stops.
+Earlier files can remain available without marking a failed refresh successful.
 
 ## Verification
 
@@ -130,11 +187,14 @@ also completed through the desktop's real background worker. Chrome checks with
 network access disabled exercised bin controls, profile/stick mode, and linked
 heatmap zoom.
 
-Release builds run the protein-standards → ADP workflow from source and the
-frozen native application using paths containing spaces. Gates check alignment,
-all seven current-view exports, native fonts, source protection and separate
-portable offline HTML. The builder rejects Chromium/WebEngine artifacts.
-Successful releases attach [native validation](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/native_smoke.json),
-[build provenance](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/build_provenance.json), and an
-[actual GUI preview](https://github.com/AlanineX/deconvovo/releases/download/v0.3.3/native_console.png). These software checks do not
-establish quantitative CCS accuracy. macOS native runtime remains untested.
+Earlier Windows x64 source and frozen application checks passed with two complete
+tune-mix/Betaine RAW acquisitions, six calibrant peaks, one finite analyte CCS
+result, and ten PNG outputs. The embedded viewer and a copied single-file HTML
+rendered offline, and the console fitted a 1280 × 800 display with native Segoe UI.
+Current retained-data verification covers seven RAW
+acquisitions and 106 original files; new package checks are recorded separately.
+
+Older `gui_validation.json` and `self_contained_validation.json` describe the
+previous five-panel copy; [production validation](examples/production/validation.json)
+retains the corresponding seven-run Linux/Wine execution results. macOS native runtime remains
+untested.

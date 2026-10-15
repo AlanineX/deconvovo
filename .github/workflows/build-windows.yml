@@ -1,8 +1,7 @@
-name: Build verified Windows release
+name: Build a verified desktop candidate
 
+# Publishing uses the exact reviewed archives; a tag must never rebuild them.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -11,28 +10,3 @@ permissions:
 jobs:
   build:
     uses: ./.github/workflows/waters-desktop.yml
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: WatersConsole-win64
-          path: release-artifact
-      - uses: actions/download-artifact@v4
-        with:
-          name: WatersConsole-win64-validation
-          path: release-validation
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release-artifact/WatersConsole-win64.zip
-            release-validation/build_provenance.json
-            release-validation/native validation with spaces/native_smoke.json
-            release-validation/native validation with spaces/native_console.png
-          fail_on_unmatched_files: true
-          body_path: RELEASE_NOTES_v0.3.3.md
